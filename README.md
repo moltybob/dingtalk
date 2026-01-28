@@ -8,15 +8,11 @@ This extension enables Moltbot to integrate with DingTalk, allowing bidirectiona
 
 ## Installation
 
-### Local Checkout
-```bash
-moltbot plugins install ./extensions/dingtalk
-```
-
 ### NPM Package
 ```bash
-moltbot plugins install @Moltbot/dingtalk
+moltbot plugins install @moltybob/dingtalk
 ```
+
 
 Onboarding: select DingTalk and confirm the install prompt to fetch the plugin automatically.
 

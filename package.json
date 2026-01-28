@@ -1,6 +1,6 @@
 {
   "name": "@moltybob/dingtalk",
-  "version": "2026.1.28-beta.1",
+  "version": "2026.1.28-beta.2",
   "type": "module",
   "description": "DingTalk channel plugin for Moltbot",
   "repository": "moltybob/dingtalk",
@@ -18,7 +18,7 @@
       "aliases": [
         "dt"
       ],
-      "order": 85,
+      "order": 55,
       "quickstartAllowFrom": true
     },
     "install": {
@@ -27,14 +27,19 @@
       "defaultChoice": "npm"
     }
   },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "dependencies": {
     "@alicloud/dingtalk": "^2.2.38",
     "@alicloud/openapi-client": "^0.4.15",
     "@alicloud/tea-typescript": "^1.8.0",
     "@alicloud/tea-util": "^1.4.11",
-    "axios": "^1.6.0",
     "dingtalk-stream": "^2.1.4",
-    "moltbot": "2026.1.27-beta.1",
-    "zod": "^4.3.6"
+    "axios": ">=1.6.0"
+  },
+  "peerDependencies": {
+    "moltbot": ">=2026.1.27-beta.1"
   }
 }
