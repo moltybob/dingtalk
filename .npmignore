@@ -1,0 +1,54 @@
+# 忽略所有 Markdown 文档文件（除非特别需要）
+*.md
+!README.md
+
+# 忽略配置和环境文件
+.env*
+*.env*
+.envrc
+
+# 忽略 Git 相关文件
+.git/
+.gitignore
+
+# 忽略编辑器和 IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 忽略测试相关文件（如果它们不是必需的）
+__tests__/
+test/
+spec/
+
+# 注意：dist 目录不应被忽略，因为它包含编译后的代码，供用户使用
+# dist/
+# 忽略构建产物（如果有的话）
+build/
+coverage/
+
+# 忽略 node_modules（虽然 npm 默认会忽略）
+node_modules/
+
+# 忽略锁定文件
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+
+.oxlintrc.json
+.vitest.config.ts
+
+# 忽略其他可能不需要的文件
+*.log
+*.tmp
+*.bak
+*.orig
+*.pyc
+*.class
+
+# 保留插件配置文件
+!clawdbot.plugin.json

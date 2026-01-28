@@ -1,0 +1,40 @@
+{
+  "name": "@moltybob/dingtalk",
+  "version": "2026.1.28-beta.1",
+  "type": "module",
+  "description": "DingTalk channel plugin for Moltbot",
+  "repository": "moltybob/dingtalk",
+  "moltbot": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "dingtalk",
+      "label": "DingTalk",
+      "selectionLabel": "DingTalk (Bot API)",
+      "docsPath": "/channels/dingtalk",
+      "docsLabel": "dingtalk",
+      "blurb": "Chinese messaging and collaboration platform with Bot API.",
+      "aliases": [
+        "dt"
+      ],
+      "order": 85,
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "@moltybob/dingtalk",
+      "localPath": ".",
+      "defaultChoice": "npm"
+    }
+  },
+  "dependencies": {
+    "@alicloud/dingtalk": "^2.2.38",
+    "@alicloud/openapi-client": "^0.4.15",
+    "@alicloud/tea-typescript": "^1.8.0",
+    "@alicloud/tea-util": "^1.4.11",
+    "axios": "^1.6.0",
+    "dingtalk-stream": "^2.1.4",
+    "moltbot": "2026.1.27-beta.1",
+    "zod": "^4.3.6"
+  }
+}

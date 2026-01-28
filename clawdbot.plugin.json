@@ -1,0 +1,23 @@
+{
+  "id": "dingtalk",
+  "channels": ["dingtalk"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "accounts": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "clientId": {"type": "string", "description": "钉钉应用Client ID"},
+            "clientSecret": {"type": "string", "description": "钉钉应用Client Secret"},
+            "enabled": {"type": "boolean", "default": true},
+            "name": {"type": "string", "description": "账户名称"}
+          },
+          "required": ["clientId", "clientSecret"]
+        }
+      }
+    }
+  }
+}

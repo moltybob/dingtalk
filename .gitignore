@@ -1,0 +1,48 @@
+# 依赖目录（如果该子项目独立安装依赖）
+node_modules/
+
+# 忽略所有 Markdown 文档文件（除非特别需要）
+*.md
+!README.md
+
+
+# 构建输出（如果该子项目有独立构建过程）
+dist/
+build/
+lib/
+
+# 测试覆盖率报告
+coverage/
+
+# 环境变量文件
+.env
+.env.local
+.env.production
+.env.development
+
+# 日志文件
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+
+# TypeScript 特定文件
+*.tsbuildinfo
+*.js.map
+
+# IDE 特定文件（如果特定于该子项目）
+.vscode/
+.idea/
+
+# 编辑过的文档
+*.bak
+*.swp
+
+# 钉钉机器人特定的临时或缓存文件
+*.cache
+.cache/
+
+# 如果有本地测试配置
+test-results/
+junit.xml
