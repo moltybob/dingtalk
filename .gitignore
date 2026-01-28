@@ -1,6 +1,18 @@
 # 依赖目录（如果该子项目独立安装依赖）
 node_modules/
 
+# macOS 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Linux 系统文件
+*~
+
 # 忽略所有 Markdown 文档文件（除非特别需要）
 *.md
 !README.md
