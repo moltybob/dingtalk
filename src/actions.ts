@@ -1,4 +1,4 @@
-import type { ChannelMessageActions } from "moltbot/plugin-sdk";
+import type { ChannelMessageActions } from "clawdbot/plugin-sdk";
 
 export const dingtalkMessageActions: ChannelMessageActions = {
   listActions: ({ cfg }) => {

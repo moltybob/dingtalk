@@ -1,25 +1,25 @@
 import type { 
-  MoltbotConfig, 
+  ClawdbotConfig, 
   ChannelOnboardingAdapter, 
   ChannelOnboardingDmPolicy,
   WizardPrompter,
-} from "moltbot/plugin-sdk";
-import type { DmPolicy } from "moltbot/plugin-sdk";
+} from "clawdbot/plugin-sdk";
+import type { DmPolicy } from "clawdbot/plugin-sdk";
 
 import { 
   listDingTalkAccountIds, 
   resolveDefaultDingTalkAccountId, 
   resolveDingTalkAccount 
 } from "./accounts.js";
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "moltbot/plugin-sdk";
-import { formatDocsLink } from "moltbot/plugin-sdk";
-import { promptChannelAccessConfig } from "moltbot/plugin-sdk";
-import { addWildcardAllowFrom } from "moltbot/plugin-sdk";
-import { promptAccountId } from "moltbot/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "clawdbot/plugin-sdk";
+import { formatDocsLink } from "clawdbot/plugin-sdk";
+import { promptChannelAccessConfig } from "clawdbot/plugin-sdk";
+import { addWildcardAllowFrom } from "clawdbot/plugin-sdk";
+import { promptAccountId } from "clawdbot/plugin-sdk";
 
 const channel = "dingtalk" as const;
 
-function setDingTalkDmPolicy(cfg: MoltbotConfig, dmPolicy: DmPolicy) {
+function setDingTalkDmPolicy(cfg: ClawdbotConfig, dmPolicy: DmPolicy) {
   const allowFrom =
     dmPolicy === "open" ? addWildcardAllowFrom(cfg.channels?.dingtalk?.allowFrom) : undefined;
   return {
@@ -51,10 +51,10 @@ async function noteDingTalkCredentialsHelp(prompter: WizardPrompter): Promise<vo
 }
 
 function setDingTalkGroupPolicy(
-  cfg: MoltbotConfig,
+  cfg: ClawdbotConfig,
   accountId: string,
   groupPolicy: "open" | "allowlist" | "disabled",
-): MoltbotConfig {
+): ClawdbotConfig {
   if (accountId === DEFAULT_ACCOUNT_ID) {
     return {
       ...cfg,
@@ -96,10 +96,10 @@ function parseDingTalkAllowFromInput(raw: string): string[] {
 }
 
 async function promptDingTalkAllowFrom(params: {
-  cfg: MoltbotConfig;
+  cfg: ClawdbotConfig;
   prompter: WizardPrompter;
   accountId?: string;
-}): Promise<MoltbotConfig> {
+}): Promise<ClawdbotConfig> {
   const accountId =
     params.accountId && normalizeAccountId(params.accountId)
       ? (normalizeAccountId(params.accountId) ?? DEFAULT_ACCOUNT_ID)

@@ -1,4 +1,4 @@
-import type { PluginRuntime } from "moltbot/plugin-sdk";
+import type { PluginRuntime } from "clawdbot/plugin-sdk";
 
 let runtime: any = null;
 

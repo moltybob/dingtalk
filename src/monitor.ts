@@ -1,5 +1,5 @@
 import { EventAck, TOPIC_ROBOT, DWClient } from 'dingtalk-stream';
-import type { MoltbotConfig, InboundMessage } from 'moltbot/plugin-sdk';
+import type { ClawdbotConfig, InboundMessage } from 'clawdbot/plugin-sdk';
 import type { ResolvedDingTalkAccount } from './accounts.js';
 import { getDingTalkRuntime } from './runtime.js';
 
@@ -7,7 +7,7 @@ interface MonitorContext {
   appKey: string; // This is actually the clientId
   appSecret: string; // This is actually the clientSecret
   account: ResolvedDingTalkAccount;
-  config: MoltbotConfig;
+  config: ClawdbotConfig;
   runtime: any;
   abortSignal: AbortSignal;
   useWebhook?: boolean;
@@ -112,7 +112,7 @@ type RobotMessage = TextRobotMessage | ImageRobotMessage | VoiceRobotMessage | F
 
 // Directly handle the inbound message using the runtime channel system
 // This follows the same pattern as other channel extensions (Matrix, etc.)
-async function processInboundMessage(message: RobotMessage, config: MoltbotConfig, runtime: any, appKey?: string, appSecret?: string): Promise<void> {
+async function processInboundMessage(message: RobotMessage, config: ClawdbotConfig, runtime: any, appKey?: string, appSecret?: string): Promise<void> {
   // Extract common message information
   const { senderId, senderNick, conversationType, conversationId, msgId, createAt } = message;
 
@@ -186,7 +186,7 @@ async function processInboundMessage(message: RobotMessage, config: MoltbotConfi
           
           // Download the image and store it for processing
           try {
-            const { loadWebMedia } = await import('moltbot/plugin-sdk');
+            const { loadWebMedia } = await import('clawdbot/plugin-sdk');
             const mediaResult = await loadWebMedia(imageUrl);
             if (mediaResult.ok) {
               mediaPath = mediaResult.path;
@@ -279,7 +279,7 @@ async function processInboundMessage(message: RobotMessage, config: MoltbotConfi
         rawContent = message;
     }
 
-    // Format as a message context that Moltbot can process
+    // Format as a message context that Clawdbot can process
     const ctxPayload = {
       Body: textContent,                                    // Main message body
       RawBody: textContent,                                 // Raw message content

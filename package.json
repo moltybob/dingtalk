@@ -1,10 +1,14 @@
 {
   "name": "@moltybob/dingtalk",
-  "version": "2026.1.28-beta.5",
+  "version": "2026.1.28-beta.6",
   "type": "module",
-  "description": "DingTalk channel plugin for Moltbot",
-  "repository": "moltybob/dingtalk",
-  "moltbot": {
+  "description": "DingTalk channel plugin for Clawdbot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moltbot/moltbot",
+    "branch": "support-clawdbot"
+  },
+  "clawdbot": {
     "extensions": [
       "./index.ts"
     ],
@@ -34,13 +38,13 @@
   "dependencies": {
     "dingtalk-stream": "^2.1.4",
     "axios": ">=1.6.0",
-    "zod": "^4.3.6",
+    "zod": ">=3.22.0",
     "@alicloud/dingtalk": "^2.2.38",
     "@alicloud/openapi-client": "^0.4.15",
     "@alicloud/tea-typescript": "^1.8.0",
     "@alicloud/tea-util": "^1.4.11"
   },
   "peerDependencies": {
-    "moltbot": "latest"
+    "clawdbot": ">=2026.1.24"
   }
 }

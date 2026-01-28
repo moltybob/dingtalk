@@ -1,5 +1,5 @@
-import type { MoltbotConfig } from "moltbot/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "moltbot/plugin-sdk";
+import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "clawdbot/plugin-sdk";
 
 export interface ResolvedDingTalkAccount {
   accountId: string;
@@ -24,7 +24,7 @@ export function resolveDingTalkAccount({
   cfg,
   accountId,
 }: {
-  cfg: MoltbotConfig;
+  cfg: ClawdbotConfig;
   accountId?: string;
 }): ResolvedDingTalkAccount {
   const resolvedAccountId = normalizeAccountId(accountId) ?? DEFAULT_ACCOUNT_ID;
@@ -78,7 +78,7 @@ export function resolveDingTalkAccount({
   }
 }
 
-export function resolveDefaultDingTalkAccountId(cfg: MoltbotConfig): string {
+export function resolveDefaultDingTalkAccountId(cfg: ClawdbotConfig): string {
   // Check if there's a named account that should be default
   if (cfg.channels?.dingtalk?.accounts) {
     const accounts = Object.keys(cfg.channels.dingtalk.accounts);
@@ -93,7 +93,7 @@ export function resolveDefaultDingTalkAccountId(cfg: MoltbotConfig): string {
   return DEFAULT_ACCOUNT_ID;
 }
 
-export function listDingTalkAccountIds(cfg: MoltbotConfig): string[] {
+export function listDingTalkAccountIds(cfg: ClawdbotConfig): string[] {
   if (cfg.channels?.dingtalk?.accounts) {
     return [...Object.keys(cfg.channels.dingtalk.accounts), DEFAULT_ACCOUNT_ID];
   }
