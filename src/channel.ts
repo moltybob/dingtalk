@@ -2,8 +2,8 @@ import type {
   ChannelAccountSnapshot,
   ChannelDock,
   ChannelPlugin,
-  MoltbotConfig,
-} from "moltbot/plugin-sdk";
+  OpenClawConfig,
+} from "openclaw/plugin-sdk";
 import {
   applyAccountNameToChannelSection,
   buildChannelConfigSchema,
@@ -14,7 +14,7 @@ import {
   normalizeAccountId,
   PAIRING_APPROVED_MESSAGE,
   setAccountEnabledInConfigSection,
-} from "moltbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
 
 import { listDingTalkAccountIds, resolveDefaultDingTalkAccountId, resolveDingTalkAccount, type ResolvedDingTalkAccount } from "./accounts.js";
 import { dingtalkMessageActions } from "./actions.js";
@@ -56,7 +56,7 @@ export const dingtalkDock: ChannelDock = {
   outbound: { textChunkLimit: 2000 },
   config: {
     resolveAllowFrom: ({ cfg, accountId }) =>
-      (resolveDingTalkAccount({ cfg: cfg as MoltbotConfig, accountId }).config.allowFrom ?? []).map(
+      (resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }).config.allowFrom ?? []).map(
         (entry) => String(entry),
       ),
     formatAllowFrom: ({ allowFrom }) =>
@@ -90,12 +90,12 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
   reload: { configPrefixes: ["channels.dingtalk"] },
   configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
   config: {
-    listAccountIds: (cfg) => listDingTalkAccountIds(cfg as MoltbotConfig),
-    resolveAccount: (cfg, accountId) => resolveDingTalkAccount({ cfg: cfg as MoltbotConfig, accountId }),
-    defaultAccountId: (cfg) => resolveDefaultDingTalkAccountId(cfg as MoltbotConfig),
+    listAccountIds: (cfg) => listDingTalkAccountIds(cfg as OpenClawConfig),
+    resolveAccount: (cfg, accountId) => resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }),
+    defaultAccountId: (cfg) => resolveDefaultDingTalkAccountId(cfg as OpenClawConfig),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
-        cfg: cfg as MoltbotConfig,
+        cfg: cfg as OpenClawConfig,
         sectionKey: "dingtalk",
         accountId,
         enabled,
@@ -103,7 +103,7 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
       }),
     deleteAccount: ({ cfg, accountId }) =>
       deleteAccountFromConfigSection({
-        cfg: cfg as MoltbotConfig,
+        cfg: cfg as OpenClawConfig,
         sectionKey: "dingtalk",
         accountId,
         clearBaseFields: ["clientId", "clientSecret", "name"],
@@ -117,7 +117,7 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
       tokenSource: account.tokenSource,
     }),
     resolveAllowFrom: ({ cfg, accountId }) =>
-      (resolveDingTalkAccount({ cfg: cfg as MoltbotConfig, accountId }).config.allowFrom ?? []).map(
+      (resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }).config.allowFrom ?? []).map(
         (entry) => String(entry),
       ),
     formatAllowFrom: ({ allowFrom }) =>
@@ -131,7 +131,7 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
       const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
       const useAccountPath = Boolean(
-        (cfg as MoltbotConfig).channels?.dingtalk?.accounts?.[resolvedAccountId],
+        (cfg as OpenClawConfig).channels?.dingtalk?.accounts?.[resolvedAccountId],
       );
       const basePath = useAccountPath
         ? `channels.dingtalk.accounts.${resolvedAccountId}.`
@@ -168,7 +168,7 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
   directory: {
     self: async () => null,
     listPeers: async ({ cfg, accountId, query, limit }) => {
-      const account = resolveDingTalkAccount({ cfg: cfg as MoltbotConfig, accountId });
+      const account = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId });
       const q = query?.trim().toLowerCase() || "";
       const peers = Array.from(
         new Set(
@@ -191,13 +191,13 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
   },
   setup: {
     resolveAccountId: ({ accountId }) => normalizeAccountId(accountId),
-    applyAccountName: ({ cfg, accountId, name }) =>
-      applyAccountNameToChannelSection({
-        cfg: cfg as MoltbotConfig,
-        channelKey: "dingtalk",
-        accountId,
-        name,
-      }),
+     applyAccountName: ({ cfg, accountId, name }) =>
+       applyAccountNameToChannelSection({
+         cfg: cfg as OpenClawConfig,
+         channelKey: "dingtalk",
+         accountId,
+         name,
+       }),
     validateInput: ({ accountId, input }) => {
       if (input.useEnv && accountId !== DEFAULT_ACCOUNT_ID) {
         return "DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET can only be used for the default account.";
@@ -207,76 +207,76 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
       }
       return null;
     },
-    applyAccountConfig: ({ cfg, accountId, input }) => {
-      const namedConfig = applyAccountNameToChannelSection({
-        cfg: cfg as MoltbotConfig,
-        channelKey: "dingtalk",
-        accountId,
-        name: input.name,
-      });
-      const next =
-        accountId !== DEFAULT_ACCOUNT_ID
-          ? migrateBaseNameToDefaultAccount({
-              cfg: namedConfig,
-              channelKey: "dingtalk",
-            })
-          : namedConfig;
-      if (accountId === DEFAULT_ACCOUNT_ID) {
-        return {
-          ...next,
-          channels: {
-            ...next.channels,
-            dingtalk: {
-              ...next.channels?.dingtalk,
-              enabled: true,
-              ...(input.useEnv
-                ? {}
-                : input.clientId && input.clientSecret
-                  ? {
-                      clientId: input.clientId,
-                      clientSecret: input.clientSecret
-                    }
-                  : {}),
-            },
-          },
-        } as MoltbotConfig;
-      }
-      return {
-        ...next,
-        channels: {
-          ...next.channels,
-          dingtalk: {
-            ...next.channels?.dingtalk,
-            enabled: true,
-            accounts: {
-              ...next.channels?.dingtalk?.accounts,
-              [accountId]: {
-                ...next.channels?.dingtalk?.accounts?.[accountId],
-                enabled: true,
-                ...(input.clientId && input.clientSecret
-                  ? {
-                      clientId: input.clientId,
-                      clientSecret: input.clientSecret,
-                      ...(input.agentId ? { agentId: input.agentId } : {})
-                    }
-                  : {}),
-              },
-            },
-          },
-        },
-      } as MoltbotConfig;
-    },
+     applyAccountConfig: ({ cfg, accountId, input }) => {
+       const namedConfig = applyAccountNameToChannelSection({
+         cfg: cfg as OpenClawConfig,
+         channelKey: "dingtalk",
+         accountId,
+         name: input.name,
+       });
+       const next =
+         accountId !== DEFAULT_ACCOUNT_ID
+           ? migrateBaseNameToDefaultAccount({
+               cfg: namedConfig,
+               channelKey: "dingtalk",
+             })
+           : namedConfig;
+       if (accountId === DEFAULT_ACCOUNT_ID) {
+         return {
+           ...next,
+           channels: {
+             ...next.channels,
+             dingtalk: {
+               ...next.channels?.dingtalk,
+               enabled: true,
+               ...(input.useEnv
+                 ? {}
+                 : input.clientId && input.clientSecret
+                   ? {
+                       clientId: input.clientId,
+                       clientSecret: input.clientSecret
+                     }
+                   : {}),
+             },
+           },
+         } as OpenClawConfig;
+       }
+       return {
+         ...next,
+         channels: {
+           ...next.channels,
+           dingtalk: {
+             ...next.channels?.dingtalk,
+             enabled: true,
+             accounts: {
+               ...next.channels?.dingtalk?.accounts,
+               [accountId]: {
+                 ...next.channels?.dingtalk?.accounts?.[accountId],
+                 enabled: true,
+                 ...(input.clientId && input.clientSecret
+                   ? {
+                       clientId: input.clientId,
+                       clientSecret: input.clientSecret,
+                       ...(input.agentId ? { agentId: input.agentId } : {})
+                     }
+                   : {}),
+               },
+             },
+           },
+         },
+       } as OpenClawConfig;
+     },
   },
   pairing: {
     idLabel: "dingtalkUserId",
     normalizeAllowEntry: (entry) => entry.replace(/^(dingtalk|dt):/i, ""),
     notifyApproval: async ({ cfg, id }) => {
-      const account = resolveDingTalkAccount({ cfg: cfg as MoltbotConfig });
+      const account = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig });
       if (!account.clientId || !account.clientSecret) throw new Error("DingTalk credentials not configured");
       await sendMessageDingTalk(id, PAIRING_APPROVED_MESSAGE, {
         appKey: account.clientId,
         appSecret: account.clientSecret,
-        agentId: account.config.agentId || "clawdbot" // Use configured agentId or default
+        agentId: account.config.agentId || "openclaw" // Use configured agentId or default
       });
     },
   },
@@ -306,12 +306,12 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
     chunkerMode: "text",
     textChunkLimit: 2000,
     sendText: async ({ to, text, accountId, cfg, context }) => {
-      const account = resolveDingTalkAccount({ cfg: cfg as MoltbotConfig, accountId });
+      const account = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId });
       const sessionWebhook = context?.metadata?.sessionWebhook; // Get session webhook from context if available
       const result = await sendMessageDingTalk(to, text, {
         appKey: account.clientId,
         appSecret: account.clientSecret,
-        agentId: account.config.agentId || "clawdbot",
+        agentId: account.config.agentId || "openclaw",
         sessionWebhook, // Pass session webhook for replies
       });
       return {
@@ -322,12 +322,12 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
       };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, cfg, context }) => {
-      const account = resolveDingTalkAccount({ cfg: cfg as MoltbotConfig, accountId });
+      const account = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId });
       const sessionWebhook = context?.metadata?.sessionWebhook; // Get session webhook from context if available
       const result = await sendMessageDingTalk(to, text, {
         appKey: account.clientId,
         appSecret: account.clientSecret,
-        agentId: account.config.agentId || "clawdbot",
+        agentId: account.config.agentId || "openclaw",
         mediaUrl,
         sessionWebhook, // Pass session webhook for replies
       });
@@ -424,7 +424,7 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
         appKey,
         appSecret,
         account,
-        config: ctx.cfg as MoltbotConfig,
+         config: ctx.cfg as OpenClawConfig,
         runtime: ctx.runtime,
         abortSignal: ctx.abortSignal,
         useWebhook: Boolean(account.config.webhookUrl),

@@ -1,16 +1,16 @@
 # @moltybob/dingtalk
 
-DingTalk channel plugin for Moltbot (Bot API).
+DingTalk channel plugin for OpenClaw (Bot API).
 
 ## Overview
 
-This extension enables Moltbot to integrate with DingTalk, allowing bidirectional messaging between Moltbot and DingTalk users/groups. The extension supports both streaming and webhook modes, with full security and access control features.
+This extension enables OpenClaw to integrate with DingTalk, allowing bidirectional messaging between OpenClaw and DingTalk users/groups. The extension supports both streaming and webhook modes, with full security and access control features.
 
 ## Installation
 
 ### NPM Package
 ```bash
-moltbot plugins install @moltybob/dingtalk
+openclaw plugins install @moltybob/dingtalk
 ```
 
 
@@ -79,4 +79,4 @@ For complete development guide, testing strategies, and integration details, see
 - ✅ Webhook and streaming modes
 - ✅ Proxy support
 - ✅ Comprehensive error handling
-- ✅ Full integration with Moltbot ecosystem
+- ✅ Full integration with OpenClaw ecosystem

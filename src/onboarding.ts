@@ -1,25 +1,25 @@
 import type { 
-  MoltbotConfig, 
+  OpenClawConfig, 
   ChannelOnboardingAdapter, 
   ChannelOnboardingDmPolicy,
   WizardPrompter,
-} from "moltbot/plugin-sdk";
-import type { DmPolicy } from "moltbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
+import type { DmPolicy } from "openclaw/plugin-sdk";
 
 import { 
   listDingTalkAccountIds, 
   resolveDefaultDingTalkAccountId, 
   resolveDingTalkAccount 
 } from "./accounts.js";
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "moltbot/plugin-sdk";
-import { formatDocsLink } from "moltbot/plugin-sdk";
-import { promptChannelAccessConfig } from "moltbot/plugin-sdk";
-import { addWildcardAllowFrom } from "moltbot/plugin-sdk";
-import { promptAccountId } from "moltbot/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
+import { formatDocsLink } from "openclaw/plugin-sdk";
+import { promptChannelAccessConfig } from "openclaw/plugin-sdk";
+import { addWildcardAllowFrom } from "openclaw/plugin-sdk";
+import { promptAccountId } from "openclaw/plugin-sdk";
 
 const channel = "dingtalk" as const;
 
-function setDingTalkDmPolicy(cfg: MoltbotConfig, dmPolicy: DmPolicy) {
+function setDingTalkDmPolicy(cfg: OpenClawConfig, dmPolicy: DmPolicy) {
   const allowFrom =
     dmPolicy === "open" ? addWildcardAllowFrom(cfg.channels?.dingtalk?.allowFrom) : undefined;
   return {
@@ -51,10 +51,10 @@ async function noteDingTalkCredentialsHelp(prompter: WizardPrompter): Promise<vo
 }
 
 function setDingTalkGroupPolicy(
-  cfg: MoltbotConfig,
+  cfg: OpenClawConfig,
   accountId: string,
   groupPolicy: "open" | "allowlist" | "disabled",
-): MoltbotConfig {
+): OpenClawConfig {
   if (accountId === DEFAULT_ACCOUNT_ID) {
     return {
       ...cfg,
@@ -96,10 +96,10 @@ function parseDingTalkAllowFromInput(raw: string): string[] {
 }
 
 async function promptDingTalkAllowFrom(params: {
-  cfg: MoltbotConfig;
+  cfg: OpenClawConfig;
   prompter: WizardPrompter;
   accountId?: string;
-}): Promise<MoltbotConfig> {
+}): Promise<OpenClawConfig> {
   const accountId =
     params.accountId && normalizeAccountId(params.accountId)
       ? (normalizeAccountId(params.accountId) ?? DEFAULT_ACCOUNT_ID)

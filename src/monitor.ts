@@ -1,5 +1,5 @@
 import { EventAck, TOPIC_ROBOT, DWClient } from 'dingtalk-stream';
-import type { MoltbotConfig, InboundMessage } from 'moltbot/plugin-sdk';
+import type { OpenClawConfig, InboundMessage } from 'openclaw/plugin-sdk';
 import type { ResolvedDingTalkAccount } from './accounts.js';
 import { getDingTalkRuntime } from './runtime.js';
 
@@ -7,7 +7,7 @@ interface MonitorContext {
   appKey: string; // This is actually the clientId
   appSecret: string; // This is actually the clientSecret
   account: ResolvedDingTalkAccount;
-  config: MoltbotConfig;
+  config: OpenClawConfig;
   runtime: any;
   abortSignal: AbortSignal;
   useWebhook?: boolean;
@@ -112,7 +112,7 @@ type RobotMessage = TextRobotMessage | ImageRobotMessage | VoiceRobotMessage | F
 
 // Directly handle the inbound message using the runtime channel system
 // This follows the same pattern as other channel extensions (Matrix, etc.)
-async function processInboundMessage(message: RobotMessage, config: MoltbotConfig, runtime: any, appKey?: string, appSecret?: string): Promise<void> {
+async function processInboundMessage(message: RobotMessage, config: OpenClawConfig, runtime: any, appKey?: string, appSecret?: string): Promise<void> {
   // Extract common message information
   const { senderId, senderNick, conversationType, conversationId, msgId, createAt } = message;
 
@@ -186,7 +186,7 @@ async function processInboundMessage(message: RobotMessage, config: MoltbotConfi
           
           // Download the image and store it for processing
           try {
-            const { loadWebMedia } = await import('moltbot/plugin-sdk');
+             const { loadWebMedia } = await import('openclaw/plugin-sdk');
             const mediaResult = await loadWebMedia(imageUrl);
             if (mediaResult.ok) {
               mediaPath = mediaResult.path;
@@ -279,7 +279,7 @@ async function processInboundMessage(message: RobotMessage, config: MoltbotConfi
         rawContent = message;
     }
 
-    // Format as a message context that Moltbot can process
+    // Format as a message context that OpenClaw can process
     const ctxPayload = {
       Body: textContent,                                    // Main message body
       RawBody: textContent,                                 // Raw message content
@@ -349,7 +349,7 @@ async function processInboundMessage(message: RobotMessage, config: MoltbotConfi
             {
               appKey: appKey || '', // Use provided appKey or empty string
               appSecret: appSecret || '', // Use provided appSecret or empty string
-              agentId: 'clawdbot',
+              agentId: 'openclaw',
               sessionWebhook, // Use the session webhook for this conversation
             }
           );
@@ -599,11 +599,11 @@ export async function handleDingTalkWebhookRequest(
                   text: logText.substring(0, 100) + '...'
                 }, null, 2));
                 
-                // Process the inbound message - in a real implementation, 
-                // you'd need access to the full config and context
-                // For webhook mode, we need to handle the message differently
-                // For now, we'll pass an empty config and null runtime
-                await processInboundMessage(payload, {} as any, null, undefined, undefined);
+         // Process the inbound message - in a real implementation, 
+         // you'd need access to the full config and context
+         // For webhook mode, we need to handle the message differently
+         // For now, we'll pass an empty config and null runtime
+         await processInboundMessage(payload, {} as OpenClawConfig, null, undefined, undefined);
                 console.log(`[dingtalk] Completed processing robot message`);
               } else {
                 console.log(`[dingtalk] No event data found in robot message`);

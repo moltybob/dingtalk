@@ -147,7 +147,7 @@ export class DingTalkHttpClient {
       const axios = (await import('axios')).default;
       
       const response = await axios.post('https://oapi.dingtalk.com/topapi/message/corpconversation/asyncsend_v2', {
-        agent_id: 'clawdbot', // This should come from config
+        agent_id: 'openclaw', // This should come from config
         userid_list: userId,
         msg: message,
       }, {

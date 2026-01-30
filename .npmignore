@@ -51,4 +51,4 @@ pnpm-lock.yaml
 *.class
 
 # 保留插件配置文件
-!clawdbot.plugin.json
+!openclaw.plugin.json
