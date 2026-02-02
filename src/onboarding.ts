@@ -105,7 +105,8 @@ async function promptDingTalkAllowFrom(params: {
       ? (normalizeAccountId(params.accountId) ?? DEFAULT_ACCOUNT_ID)
       : resolveDefaultDingTalkAccountId(params.cfg);
   const _resolved = resolveDingTalkAccount({ cfg: params.cfg, accountId });
-  const existing = params.cfg.channels?.dingtalk?.allowFrom ?? [];
+  const allowFromValue = params.cfg.channels?.dingtalk?.allowFrom;
+  const existing = Array.isArray(allowFromValue) ? allowFromValue : [];
   await params.prompter.note(
     [
       "通过用户ID设置钉钉私信白名单。",
@@ -356,14 +357,15 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
     }
 
     // 配置访问控制
-    const currentEntries = resolvedAccount.config.allowFrom ?? [];
+    const allowFromValue = resolvedAccount.config.allowFrom;
+    const currentEntries = Array.isArray(allowFromValue) ? allowFromValue : [];
     const accessConfig = await promptChannelAccessConfig({
       prompter,
       label: "DingTalk 访问控制",
       currentPolicy: resolvedAccount.config.groupPolicy ?? "allowlist",
       currentEntries: currentEntries.map(String),
       placeholder: "userId123, userId456",
-      updatePrompt: Boolean(resolvedAccount.config.allowFrom),
+      updatePrompt: Boolean(Array.isArray(allowFromValue) && allowFromValue.length > 0),
     });
     
     if (accessConfig) {

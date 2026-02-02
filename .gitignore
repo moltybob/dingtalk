@@ -1,6 +1,10 @@
 # 依赖目录（如果该子项目独立安装依赖）
 node_modules/
 
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # macOS 系统文件
 .DS_Store
 .DS_Store?

@@ -55,10 +55,11 @@ export const dingtalkDock: ChannelDock = {
   },
   outbound: { textChunkLimit: 2000 },
   config: {
-    resolveAllowFrom: ({ cfg, accountId }) =>
-      (resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }).config.allowFrom ?? []).map(
-        (entry) => String(entry),
-      ),
+    resolveAllowFrom: ({ cfg, accountId }) => {
+      const allowFrom = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }).config.allowFrom;
+      const allowFromArray = Array.isArray(allowFrom) ? allowFrom : [];
+      return allowFromArray.map((entry) => String(entry));
+    },
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom
         .map((entry) => String(entry).trim())
@@ -116,10 +117,11 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
       configured: Boolean(account.clientId?.trim() && account.clientSecret?.trim()),
       tokenSource: account.tokenSource,
     }),
-    resolveAllowFrom: ({ cfg, accountId }) =>
-      (resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }).config.allowFrom ?? []).map(
-        (entry) => String(entry),
-      ),
+    resolveAllowFrom: ({ cfg, accountId }) => {
+      const allowFrom = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId }).config.allowFrom;
+      const allowFromArray = Array.isArray(allowFrom) ? allowFrom : [];
+      return allowFromArray.map((entry) => String(entry));
+    },
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom
         .map((entry) => String(entry).trim())
@@ -138,7 +140,7 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
         : "channels.dingtalk.";
       return {
         policy: account.config.dmPolicy ?? "pairing",
-        allowFrom: account.config.allowFrom ?? [],
+        allowFrom: Array.isArray(account.config.allowFrom) ? account.config.allowFrom : [],
         policyPath: `${basePath}dmPolicy`,
         allowFromPath: basePath,
         approveHint: formatPairingApproveHint("dingtalk"),
@@ -170,9 +172,10 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
     listPeers: async ({ cfg, accountId, query, limit }) => {
       const account = resolveDingTalkAccount({ cfg: cfg as OpenClawConfig, accountId });
       const q = query?.trim().toLowerCase() || "";
+      const allowFromArray = Array.isArray(account.config.allowFrom) ? account.config.allowFrom : [];
       const peers = Array.from(
         new Set(
-          (account.config.allowFrom ?? [])
+          allowFromArray
             .map((entry) => String(entry).trim())
             .filter((entry) => Boolean(entry) && entry !== "*")
             .map((entry) => entry.replace(/^(dingtalk|dt):/i, "")),

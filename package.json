@@ -1,6 +1,6 @@
 {
   "name": "@moltybob/dingtalk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "DingTalk channel plugin for OpenClaw",
   "repository": "moltybob/dingtalk",
@@ -41,9 +41,6 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "openclaw": "latest"
-  },
-  "devDependencies": {
-    "@types/node": "^25.1.0"
+    "openclaw": ">=2026.1.29"
   }
 }
