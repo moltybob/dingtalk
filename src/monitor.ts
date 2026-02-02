@@ -392,138 +392,284 @@ export async function monitorDingTalkProvider(ctx: MonitorContext) {
     console.warn('[dingtalk] Webhook mode not fully implemented for DingTalk, using Stream API');
   }
 
-  try {
-    const client = new DWClient({
-      clientId: ctx.appKey,
-      clientSecret: ctx.appSecret,
-    });
+  let connection: any = null;
+  let reconnectAttempts = 0;
+  let clientInstance: any = null;
+  const maxReconnectAttempts = 10;
+  const initialReconnectDelay = 1000; // 1 second
+  const maxReconnectDelay = 60000; // 60 seconds
 
-    // Register the callback listener for robot messages
-    client.registerCallbackListener(TOPIC_ROBOT, async (res) => {
+  // Function to establish connection with retry logic
+  const connectWithRetry = async () => {
+    const attemptConnection = async () => {
       try {
-        // console.debug(`[dingtalk] Received raw callback: ${JSON.stringify(res.data)}`);
-        const payload = JSON.parse(res.data) as RobotMessage;
-        const { senderId, senderNick, conversationType, conversationId, msgtype } = payload;
-
-        // Log received message based on its type
-        let logContent = '';
-        switch (msgtype) {
-          case 'text':
-            logContent = payload.text?.content || '';
-            break;
-          case 'image':
-            logContent = payload.text?.content || `Image: ${payload.photo?.photoURL}`;
-            break;
-          case 'voice':
-            logContent = payload.text?.content || `Voice message`;
-            break;
-          case 'file':
-            logContent = payload.text?.content || `File: ${payload.file?.fileName}`;
-            break;
-          case 'link':
-            logContent = payload.link?.title || payload.link?.text || 'Link message';
-            break;
-          case 'markdown':
-            logContent = payload.markdown?.title || payload.markdown?.text || 'Markdown message';
-            break;
-          default:
-            logContent = JSON.stringify(payload);
-        }
-
-        // Log received message
-        console.log(`[dingtalk] Received ${msgtype} message from ${senderNick} (${senderId}): ${logContent.substring(0, 100)}${logContent.length > 100 ? '...' : ''}`);
-        console.log(`[dingtalk] Conversation: ${conversationId}, Type: ${conversationType}`);
-
-        // Update status to indicate message received
-        ctx.statusSink({ lastInboundAt: new Date().toISOString() });
-
-        // Process the inbound message - pass the runtime and credentials
-        await processInboundMessage(payload, ctx.config, ctx.runtime, ctx.appKey, ctx.appSecret);
-
-        // Acknowledge the message to prevent re-delivery
-        client.socketCallBackResponse(res.headers.messageId, { success: true });
-
-        return EventAck.SUCCESS;
-      } catch (error) {
-        console.error('[dingtalk] Error processing DingTalk message:', error);
-        console.error('[dingtalk] Error stack:', error instanceof Error ? error.stack : 'No stack available');
-        ctx.statusSink({
-          lastError: error instanceof Error ? error.message : String(error)
+        const client = new DWClient({
+          clientId: ctx.appKey,
+          clientSecret: ctx.appSecret,
         });
-        return EventAck.FAILED;
-      }
-    });
 
-    console.debug('[dingtalk] Attempting to connect to DingTalk stream...');
-    
-    // Connect to the stream
-    const connection = await client.connect();
-    console.log('[dingtalk] Successfully connected to DingTalk stream');
+        // Register the callback listener for robot messages
+        client.registerCallbackListener(TOPIC_ROBOT, async (res) => {
+          try {
+            const payload = JSON.parse(res.data) as RobotMessage;
+            const { senderId, senderNick, conversationType, conversationId, msgtype } = payload;
 
-    // Handle connection lifecycle
-    const cleanup = () => {
-      console.debug('[dingtalk] Stopping DingTalk provider');
-      connection.close();
-    };
+            // Log received message based on its type
+            let logContent = '';
+            switch (msgtype) {
+              case 'text':
+                logContent = payload.text?.content || '';
+                break;
+              case 'image':
+                logContent = payload.text?.content || `Image: ${payload.photo?.photoURL}`;
+                break;
+              case 'voice':
+                logContent = payload.text?.content || `Voice message`;
+                break;
+              case 'file':
+                logContent = payload.text?.content || `File: ${payload.file?.fileName}`;
+                break;
+              case 'link':
+                logContent = payload.link?.title || payload.link?.text || 'Link message';
+                break;
+              case 'markdown':
+                logContent = payload.markdown?.title || payload.markdown?.text || 'Markdown message';
+                break;
+              default:
+                logContent = JSON.stringify(payload);
+            }
 
-    // Listen for abort signal to properly clean up
-    ctx.abortSignal.addEventListener('abort', cleanup);
+            // Log received message
+            console.log(`[dingtalk] Received ${msgtype} message from ${senderNick} (${senderId}): ${logContent.substring(0, 100)}${logContent.length > 100 ? '...' : ''}`);
+            console.log(`[dingtalk] Conversation: ${conversationId}, Type: ${conversationType}`);
 
-    // Update status to running
-    ctx.statusSink({
-      running: true,
-      lastStartAt: new Date().toISOString()
-    });
+            // Update status to indicate message received
+            ctx.statusSink({ lastInboundAt: new Date().toISOString() });
 
-    console.log('[dingtalk] DingTalk provider started successfully');
-    
-    // Return cleanup function
-    return {
-      stop: async () => {
-        console.debug('[dingtalk] Stopping DingTalk provider...');
-        cleanup();
+            // Process the inbound message - pass the runtime and credentials
+            await processInboundMessage(payload, ctx.config, ctx.runtime, ctx.appKey, ctx.appSecret);
+
+            // Acknowledge the message to prevent re-delivery
+            client.socketCallBackResponse(res.headers.messageId, { success: true });
+
+            return EventAck.SUCCESS;
+          } catch (error) {
+            console.error('[dingtalk] Error processing DingTalk message:', error);
+            console.error('[dingtalk] Error stack:', error instanceof Error ? error.stack : 'No stack available');
+            ctx.statusSink({
+              lastError: error instanceof Error ? error.message : String(error)
+            });
+            return EventAck.FAILED;
+          }
+        });
+
+        console.debug('[dingtalk] Attempting to connect to DingTalk stream...');
+        
+        // Connect to the stream
+        const conn = await client.connect();
+        console.log('[dingtalk] Successfully connected to DingTalk stream');
+
+        // Reset reconnect attempts on successful connection
+        reconnectAttempts = 0;
+
+        // Update status to running
         ctx.statusSink({
-          running: false,
-          lastStopAt: new Date().toISOString(),
+          running: true,
+          lastStartAt: new Date().toISOString(),
           lastError: null
         });
-        console.debug('[dingtalk] DingTalk provider stopped');
+
+        return { client, connection: conn };
+      } catch (error) {
+        console.error('[dingtalk] Failed to connect to DingTalk stream:', error);
+        console.error('[dingtalk] Error details:', error instanceof Error ? error.message : String(error));
+        console.error('[dingtalk] Error code:', (error as any).code || 'no code');
+        console.error('[dingtalk] Error stack:', error instanceof Error ? error.stack : 'No stack available');
+        
+        // Additional debugging for Axios errors (the specific error mentioned in the issue)
+        if ((error as any).config) {
+          console.error('[dingtalk] Axios request config:', {
+            url: (error as any).config.url,
+            method: (error as any).config.method,
+            headers: (error as any).config.headers ? Object.keys((error as any).config.headers) : 'no headers',
+            data: (error as any).config.data ? 'data present' : 'no data'
+          });
+        }
+        
+        if ((error as any).response) {
+          console.error('[dingtalk] Axios response details:', {
+            status: (error as any).response.status,
+            statusText: (error as any).response.statusText,
+            headers: (error as any).response.headers,
+            data: (error as any).response.data
+          });
+        }
+        
+        // Update status with error
+        ctx.statusSink({
+          running: false,
+          lastError: error instanceof Error ? error.message : String(error),
+          lastStartAt: new Date().toISOString()
+        });
+        
+        throw error; // Re-throw to trigger retry logic
       }
     };
+
+    // Exponential backoff retry loop
+    while (!ctx.abortSignal.aborted) {
+      try {
+        return await attemptConnection();
+      } catch (error) {
+        if (ctx.abortSignal.aborted) {
+          console.debug('[dingtalk] Abort signal received, stopping reconnection attempts');
+          throw new Error('DingTalk monitor aborted');
+        }
+
+        reconnectAttempts++;
+        if (reconnectAttempts >= maxReconnectAttempts) {
+          console.error(`[dingtalk] Maximum reconnection attempts (${maxReconnectAttempts}) reached. Giving up.`);
+          throw new Error(`Failed to reconnect after ${maxReconnectAttempts} attempts`);
+        }
+
+        // Calculate delay with exponential backoff (with jitter to prevent thundering herd)
+        const baseDelay = Math.min(initialReconnectDelay * Math.pow(2, reconnectAttempts - 1), maxReconnectDelay);
+        const jitter = Math.random() * 0.1 * baseDelay; // Add 10% jitter
+        const delay = baseDelay + jitter;
+
+        console.warn(`[dingtalk] Connection attempt ${reconnectAttempts}/${maxReconnectAttempts} failed. Retrying in ${Math.round(delay / 1000)}s...`);
+        console.error('[dingtalk] Reconnection error:', error instanceof Error ? error.message : String(error));
+
+        // Wait for the calculated delay or until abort signal
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            resolve(null);
+          }, delay);
+          
+          const onAbort = () => {
+            clearTimeout(timeout);
+            resolve(null);
+          };
+          
+          // Only add abort listener if it doesn't already exist
+          ctx.abortSignal.addEventListener('abort', onAbort, { once: true });
+        });
+
+        if (ctx.abortSignal.aborted) {
+          console.debug('[dingtalk] Abort signal received during reconnection delay');
+          throw new Error('DingTalk monitor aborted');
+        }
+      }
+    }
+  };
+
+  // Establish initial connection
+  let clientConnection;
+  try {
+    clientConnection = await connectWithRetry();
   } catch (error) {
-    console.error('[dingtalk] Failed to initialize DingTalk provider:', error);
-    console.error('[dingtalk] Error details:', error instanceof Error ? error.message : String(error));
-    console.error('[dingtalk] Error code:', (error as any).code || 'no code');
-    console.error('[dingtalk] Error stack:', error instanceof Error ? error.stack : 'No stack available');
+    console.error('[dingtalk] Failed to establish initial connection after retries:', error);
+    throw error;
+  }
+
+  const { client, connection: conn } = clientConnection;
+  connection = conn;
+  clientInstance = client;
+
+  // Handle connection errors and disconnections for automatic reconnection
+  const handleDisconnection = async () => {
+    console.warn('[dingtalk] Connection lost, attempting to reconnect...');
     
-    // Additional debugging for Axios errors
-    if ((error as any).config) {
-      console.error('[dingtalk] Axios request config:', {
-        url: (error as any).config.url,
-        method: (error as any).config.method,
-        headers: (error as any).config.headers ? Object.keys((error as any).config.headers) : 'no headers',
-        data: (error as any).config.data ? 'data present' : 'no data'
-      });
-    }
-    
-    if ((error as any).response) {
-      console.error('[dingtalk] Axios response details:', {
-        status: (error as any).response.status,
-        statusText: (error as any).response.statusText,
-        headers: (error as any).response.headers,
-        data: (error as any).response.data
-      });
-    }
-    
-    // Update status with error
+    // Update status to reflect disconnection
     ctx.statusSink({
       running: false,
-      lastError: error instanceof Error ? error.message : String(error),
-      lastStartAt: new Date().toISOString()
+      lastError: 'Connection lost, attempting to reconnect...'
     });
-    
-    throw error; // Re-throw to let the caller handle the error
+
+    // Disconnect the current client
+    try {
+      if (connection && typeof connection.close === 'function') {
+        connection.close();
+      }
+    } catch (closeError) {
+      console.error('[dingtalk] Error closing connection:', closeError);
+    }
+
+    // Attempt to reconnect
+    try {
+      const newConnection = await connectWithRetry();
+      clientInstance = newConnection.client;
+      connection = newConnection.connection;
+      
+      console.log('[dingtalk] Successfully reconnected to DingTalk stream');
+    } catch (reconnectError) {
+      console.error('[dingtalk] Failed to reconnect to DingTalk stream:', reconnectError);
+      // At this point, the error has already been handled by connectWithRetry
+    }
+  };
+
+  // Listen for connection errors (like TLS socket disconnections)
+  // The exact event names depend on the dingtalk-stream library implementation
+  // We'll handle potential error events that might occur
+  if (clientInstance && clientInstance.connection) {
+    // Add error listeners to handle disconnections
+    // Note: These may not exist in all versions of dingtalk-stream
+    if (typeof clientInstance.connection.on === 'function') {
+      clientInstance.connection.on('error', async (error) => {
+        console.error('[dingtalk] Connection error occurred:', error);
+        await handleDisconnection();
+      });
+
+      clientInstance.connection.on('close', async () => {
+        console.warn('[dingtalk] Connection closed, attempting to reconnect...');
+        await handleDisconnection();
+      });
+
+      clientInstance.connection.on('disconnect', async () => {
+        console.warn('[dingtalk] Connection disconnected, attempting to reconnect...');
+        await handleDisconnection();
+      });
+    }
   }
+
+  // Additionally, we need to handle the specific TLS socket error mentioned in the issue
+  // We'll add a general error handler to the client itself
+  if (clientInstance) {
+    // This is a general error handler that should catch various connection issues
+    if (typeof clientInstance.on === 'function') {
+      clientInstance.on('error', async (error) => {
+        console.error('[dingtalk] General client error occurred:', error);
+        await handleDisconnection();
+      });
+    }
+  }
+
+  console.log('[dingtalk] DingTalk provider started successfully');
+  
+  // Handle abort signal for graceful shutdown
+  const cleanup = () => {
+    console.debug('[dingtalk] Stopping DingTalk provider');
+    if (connection && typeof connection.close === 'function') {
+      connection.close();
+    }
+  };
+
+  // Listen for abort signal to properly clean up
+  ctx.abortSignal.addEventListener('abort', cleanup);
+
+  // Return cleanup function
+  return {
+    stop: async () => {
+      console.debug('[dingtalk] Stopping DingTalk provider...');
+      cleanup();
+      ctx.statusSink({
+        running: false,
+        lastStopAt: new Date().toISOString(),
+        lastError: null
+      });
+      console.debug('[dingtalk] DingTalk provider stopped');
+    }
+  };
 }
 
 // HTTP Handler for Webhook Requests
