@@ -4,6 +4,36 @@ import OpenApi from '@alicloud/openapi-client';
 import * as $tea from '@alicloud/tea-typescript';
 import { getDingTalkAccessToken } from './auth.js';
 
+// Helper function to detect if text contains markdown syntax
+function containsMarkdownSyntax(text: string): boolean {
+  // Check for common markdown elements:
+  // - Headers: # Header, ## Header, etc.
+  // - Bold: **bold**, __bold__
+  // - Italic: *italic*, _italic_
+  // - Links: [text](url)
+  // - Images: ![alt](url)
+  // - Lists: - item, * item, 1. item
+  // - Code blocks: `code`, ```code block```
+  // - Blockquotes: > quote
+  
+  const markdownPatterns = [
+    /^#+\s.+$/gm,           // Headers
+    /\*\*.*?\*\*/g,         // Bold with **
+    /__.*?__/g,             // Bold with __
+    /\*.*?\*/g,             // Italic with *
+    /_.*?_/g,               // Italic with _
+    /\[.*?\]\(.*?\)/g,      // Links
+    /!\[.*?\]\(.*?\)/g,     // Images
+    /^(\s*)[-*]\s+/gm,      // Unordered lists
+    /^(\s*)\d+\.\s+/gm,     // Ordered lists
+    /`.*?`/g,               // Inline code
+    /^```[\s\S]*?```/gm,    // Code blocks
+    /^>\s.*/gm              // Blockquotes
+  ];
+
+  return markdownPatterns.some(pattern => pattern.test(text));
+}
+
 interface SendMessageOptions {
   appKey: string; // This is actually the clientId for the API call
   appSecret: string; // This is actually the clientSecret for the API call
@@ -62,12 +92,31 @@ export async function sendMessageDingTalk(
     if (options.sessionWebhook) {
       // Use the session webhook to reply to the specific conversation
       // This is the recommended way to reply to incoming messages
-      const messagePayload: TextMessage = {
-        msgtype: "text",
-        text: {
-          content: text
-        }
-      };
+      
+      // Detect if the text contains markdown and choose appropriate message type
+      let messagePayload: TextMessage | MarkdownMessage;
+      
+      if (containsMarkdownSyntax(text)) {
+        // Convert markdown to title and content
+        const lines = text.split('\n');
+        const firstLine = lines[0].replace(/^#+\s*/, ''); // Remove markdown header markers
+        const content = lines.slice(1).join('\n');
+        
+        messagePayload = {
+          msgtype: "markdown",
+          markdown: {
+            title: firstLine || 'Message',
+            text: content || text
+          }
+        };
+      } else {
+        messagePayload = {
+          msgtype: "text",
+          text: {
+            content: text
+          }
+        };
+      }
 
       // Use dynamic import for axios since we only need it in this specific case
       const axios = (await import('axios')).default;
@@ -105,6 +154,19 @@ export async function sendMessageDingTalk(
           text: text,
           messageUrl: options.mediaUrl,
           picUrl: options.mediaUrl // Use the media URL as the picture if it's an image
+        }
+      };
+    } else if (containsMarkdownSyntax(text)) {
+      // If text contains markdown syntax, send as markdown message
+      const lines = text.split('\n');
+      const firstLine = lines[0].replace(/^#+\s*/, ''); // Remove markdown header markers
+      const content = lines.slice(1).join('\n');
+      
+      messagePayload = {
+        msgtype: "markdown",
+        markdown: {
+          title: firstLine || 'Message',
+          text: content || text
         }
       };
     } else {
