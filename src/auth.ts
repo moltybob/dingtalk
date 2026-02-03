@@ -1,11 +1,14 @@
 import dingtalkoauth2_1_0 from '@alicloud/dingtalk/oauth2_1_0';
 import OpenApi from '@alicloud/openapi-client';
+import Util from '@alicloud/tea-util';
+import * as $tea from '@alicloud/tea-typescript';
 
 /**
  * Get access token from DingTalk API for internal applications
  * Reference: https://open.dingtalk.com/document/development/obtain-the-access-token-of-an-internal-app
  */
 export async function getDingTalkAccessToken(clientId: string, clientSecret: string): Promise<string> {
+  console.log(`[dingtalk:auth] Requesting access token for clientId: ${clientId.substring(0, 8)}...`);
   try {
     // Create a config object with necessary parameters
     const config = new OpenApi.default.Config({
@@ -30,11 +33,14 @@ export async function getDingTalkAccessToken(clientId: string, clientSecret: str
     const response = await client.getAccessToken(request);
 
     if (!response?.body?.accessToken) {
+      console.error(`[dingtalk:auth] Failed to get access token: ${response?.body?.errmsg || 'Unknown error'}`);
       throw new Error(`Failed to get access token: ${response?.body?.errmsg || 'Unknown error'}`);
     }
 
+    console.log(`[dingtalk:auth] Access token retrieved successfully`);
     return response.body.accessToken;
   } catch (err: any) {
+    console.error(`[dingtalk:auth] Error getting access token:`, err.message || 'Unknown error');
     if (err && typeof err === 'object' && 'code' in err && 'message' in err) {
       throw new Error(`Failed to get access token: ${err.message} (code: ${err.code})`);
     } else {
@@ -64,35 +70,61 @@ export interface StreamConnectionResult {
 }
 
 export async function registerStreamConnection(params: StreamConnectionParams): Promise<StreamConnectionResult> {
-  // For stream connection, we still need to use the REST API directly
-  // since the stream SDK handles the connection after getting the endpoint and ticket
-  const axios = (await import('axios')).default;
+  // Create config for API call using Tea SDK
+  const config = new OpenApi.default.Config({
+    accessKeyId: params.clientId,
+    accessKeySecret: params.clientSecret,
+  });
+  config.protocol = "https";
+  config.endpoint = "api.dingtalk.com";
+  config.regionId = "cn-hangzhou";
 
-  const response = await axios.post('https://api.dingtalk.com/v1.0/gateway/connections/open', {
-    clientId: params.clientId,
-    clientSecret: params.clientSecret,
-    localIp: params.localIp,
-    subscriptions: params.subscriptions || [
-      {
-        topic: "*",
-        type: "EVENT"
-      },
-      {
-        topic: "/v1.0/im/bot/messages/get",
-        type: "CALLBACK"
-      }
-    ],
-    ua: params.ua
-  }, {
-    timeout: 5000
+  // Create a common request object
+  const request = new OpenApi.default.OpenApiRequest({
+    protocol: "https",
+    method: "POST",
+    pathname: "/v1.0/gateway/connections/open",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: Util.toMap({
+      clientId: params.clientId,
+      clientSecret: params.clientSecret,
+      localIp: params.localIp,
+      subscriptions: params.subscriptions || [
+        {
+          topic: "*",
+          type: "EVENT"
+        },
+        {
+          topic: "/v1.0/im/bot/messages/get",
+          type: "CALLBACK"
+        }
+      ],
+      ua: params.ua
+    })
   });
 
-  if (response.data.errcode !== 0) {
-    throw new Error(`Failed to register stream connection: ${response.data.errmsg} (errcode: ${response.data.errcode})`);
-  }
+  // Create the client
+  const client = new OpenApi.default.Client(config);
 
-  return {
-    endpoint: response.data.endpoint,
-    ticket: response.data.ticket
-  };
+  try {
+    const response = await client.callApi(request);
+
+    const result = response.body as any;
+
+    if (result.errcode !== 0) {
+      throw new Error(`Failed to register stream connection: ${result.errmsg} (errcode: ${result.errcode})`);
+    }
+
+    return {
+      endpoint: result.endpoint,
+      ticket: result.ticket
+    };
+  } catch (error: any) {
+    if (!$tea.isUnretryableError(error)) {
+      throw error;
+    }
+    throw new Error(`Failed to register stream connection: ${error.message || 'Unknown error'}`);
+  }
 }

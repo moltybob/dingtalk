@@ -22,3 +22,4 @@ export * from "./src/auth.js";
 export * from "./src/accounts.js";
 export * from "./src/send.js";
 export * from "./src/monitor.js";
+export * from "./src/media.js";

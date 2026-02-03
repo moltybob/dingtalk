@@ -3,6 +3,7 @@ import dingtalkrobot_1_0 from '@alicloud/dingtalk/robot_1_0';
 import OpenApi from '@alicloud/openapi-client';
 import * as $tea from '@alicloud/tea-typescript';
 import { getDingTalkAccessToken } from './auth.js';
+import { DingTalkMediaClient } from './media.js';
 
 // Helper function to detect if text contains markdown syntax
 function containsMarkdownSyntax(text: string): boolean {
@@ -15,7 +16,7 @@ function containsMarkdownSyntax(text: string): boolean {
   // - Lists: - item, * item, 1. item
   // - Code blocks: `code`, ```code block```
   // - Blockquotes: > quote
-  
+
   const markdownPatterns = [
     /^#+\s.+$/gm,           // Headers
     /\*\*.*?\*\*/g,         // Bold with **
@@ -39,6 +40,7 @@ interface SendMessageOptions {
   appSecret: string; // This is actually the clientSecret for the API call
   agentId: string; // Required for sending messages
   mediaUrl?: string;
+  mediaPath?: string; // Local path to media file to upload and send
   sessionWebhook?: string; // For replying to messages using session webhook
 }
 
@@ -80,7 +82,38 @@ interface MarkdownMessage extends BaseMessage {
   };
 }
 
-type DingTalkMessage = TextMessage | LinkMessage | MarkdownMessage;
+// Media message interfaces - following DingTalk official specification
+interface ImageMessage extends BaseMessage {
+  msgtype: 'image';
+  image: {
+    media_id: string;
+  };
+}
+
+interface VoiceMessage extends BaseMessage {
+  msgtype: 'voice';
+  voice: {
+    media_id: string;
+  };
+}
+
+interface FileMessage extends BaseMessage {
+  msgtype: 'file';
+  file: {
+    media_id: string;
+  };
+}
+
+interface VideoMessage extends BaseMessage {
+  msgtype: 'video';
+  video: {
+    media_id: string;
+    title?: string;
+    content?: string;  // Changed from description to content as per DingTalk spec
+  };
+}
+
+type DingTalkMessage = TextMessage | LinkMessage | MarkdownMessage | ImageMessage | VoiceMessage | FileMessage | VideoMessage;
 
 export async function sendMessageDingTalk(
   to: string,
@@ -88,20 +121,88 @@ export async function sendMessageDingTalk(
   options: SendMessageOptions
 ): Promise<SendMessageResult> {
   try {
+    // If mediaPath is provided, we need to upload the media first and then send it
+    if (options.mediaPath) {
+      console.log(`[dingtalk:send] Preparing to send media file: ${options.mediaPath}`);
+      const mediaClient = new DingTalkMediaClient(options.appKey, options.appSecret);
+
+      // Determine media type based on file extension
+      const ext = options.mediaPath.split('.').pop()?.toLowerCase();
+      let mediaType: 'image' | 'voice' | 'file' | 'video' = 'file'; // default to file
+
+      if (ext && ['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(ext)) {
+        mediaType = 'image';
+        console.log(`[dingtalk:send] Detected image file type for: ${options.mediaPath}`);
+      } else if (ext && ['mp3', 'wav', 'amr', 'm4a'].includes(ext)) {
+        mediaType = 'voice';
+        console.log(`[dingtalk:send] Detected voice file type for: ${options.mediaPath}`);
+      } else if (ext && ['mp4', 'avi', 'mov', 'wmv'].includes(ext)) {
+        mediaType = 'video';
+        console.log(`[dingtalk:send] Detected video file type for: ${options.mediaPath}`);
+      } else {
+        console.log(`[dingtalk:send] Using default file type for: ${options.mediaPath}`);
+      }
+
+      // Upload the media
+      console.log(`[dingtalk:send] Uploading media file: ${options.mediaPath}`);
+      const uploadResult = await mediaClient.uploadMedia(options.mediaPath, mediaType);
+
+      if (!uploadResult.ok) {
+        console.error(`[dingtalk:send] Failed to upload media: ${uploadResult.error}`);
+        return {
+          ok: false,
+          error: `Failed to upload media: ${uploadResult.error}`
+        };
+      }
+
+      console.log(`[dingtalk:send] Media uploaded successfully, media ID: ${uploadResult.mediaId}`);
+
+      // Send the appropriate media message based on type
+      switch (mediaType) {
+        case 'image':
+          console.log(`[dingtalk:send] Sending image message to: ${to}`);
+          return await mediaClient.sendImageMessage(to, uploadResult.mediaId!, {
+            atUserIds: [],
+            isAtAll: false
+          });
+        case 'voice':
+          console.log(`[dingtalk:send] Sending voice message to: ${to}`);
+          // For voice, we need duration - for now, we'll use a default of 1 second
+          return await mediaClient.sendVoiceMessage(to, uploadResult.mediaId!, 1, {
+            atUserIds: [],
+            isAtAll: false
+          });
+        case 'video':
+          console.log(`[dingtalk:send] Sending video message to: ${to}`);
+          return await mediaClient.sendVideoMessage(to, uploadResult.mediaId!, {
+            title: 'Shared Video',
+            description: text,
+            atUserIds: [],
+            isAtAll: false
+          });
+        case 'file':
+          console.log(`[dingtalk:send] Sending file message to: ${to}`);
+          return await mediaClient.sendFileMessage(to, uploadResult.mediaId!, options.mediaPath.split('/').pop() || 'file', {
+            atUserIds: [],
+            isAtAll: false
+          });
+      }
+    }
+
     // If sessionWebhook is provided, use it to reply to the specific message
     if (options.sessionWebhook) {
       // Use the session webhook to reply to the specific conversation
       // This is the recommended way to reply to incoming messages
-      
+
       // Detect if the text contains markdown and choose appropriate message type
       let messagePayload: TextMessage | MarkdownMessage;
-      
+
       if (containsMarkdownSyntax(text)) {
         // Convert markdown to title and content
         const lines = text.split('\n');
         const firstLine = lines[0].replace(/^#+\s*/, ''); // Remove markdown header markers
         const content = lines.slice(1).join('\n');
-        
+
         messagePayload = {
           msgtype: "markdown",
           markdown: {
@@ -119,6 +220,7 @@ export async function sendMessageDingTalk(
       }
 
       // Use dynamic import for axios since we only need it in this specific case
+      // For webhook replies, we still need to use axios as it's the simplest approach
       const axios = (await import('axios')).default;
       const response = await axios.post(options.sessionWebhook, messagePayload, {
         headers: {
@@ -161,7 +263,7 @@ export async function sendMessageDingTalk(
       const lines = text.split('\n');
       const firstLine = lines[0].replace(/^#+\s*/, ''); // Remove markdown header markers
       const content = lines.slice(1).join('\n');
-      
+
       messagePayload = {
         msgtype: "markdown",
         markdown: {

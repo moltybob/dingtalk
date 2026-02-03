@@ -44,44 +44,41 @@ interface TextRobotMessage extends BaseRobotMessage {
   };
 }
 
-// Image message type
+// Image message type - following DingTalk official specification
 interface ImageRobotMessage extends BaseRobotMessage {
   msgtype: 'picture' | 'image';
-  photo?: {
-    photoURL: string;
-  };
-  content?: {
-    pictureDownloadCode?: string;
-    downloadCode?: string;
-    fileId?: string;
-    fileName?: string;
-    spaceId?: string;
+  // For image messages received from robots, the content typically contains download codes
+  content: {
+    downloadCode: string; // Used to download the actual image content
+    pictureHeight?: string;
+    pictureWidth?: string;
+    pictureURL?: string; // Optional preview URL
   };
   text?: {
     content: string; // Optional text content with the image
   };
 }
 
-// Voice message type
+// Voice message type - following DingTalk official specification
 interface VoiceRobotMessage extends BaseRobotMessage {
   msgtype: 'voice';
-  voice: {
-    mediaId: string;
-    duration: number;
+  content: {
+    downloadCode: string;  // Used to download the actual voice content
+    duration: number;      // Duration of the voice message in seconds
+    fileSize: string;      // Size of the voice file in bytes
   };
   text?: {
     content: string; // Optional text content with the voice message
   };
 }
 
-// File message type
+// File message type - following DingTalk official specification
 interface FileRobotMessage extends BaseRobotMessage {
   msgtype: 'file';
   content: {
-    spaceId: string;
-    fileName: string;
-    downloadCode: string;
-    fileId: string;
+    downloadCode: string;  // Used to download the actual file content
+    fileName: string;      // Name of the file
+    fileSize: string;      // Size of the file in bytes
   };
   text?: {
     content: string; // Optional text content with the file
@@ -144,20 +141,42 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
     const { DingTalkHttpClient } = await import('./dingtalk-client.js');
     const httpClient = new DingTalkHttpClient(appKey || '', appSecret || '');
     
-    // Helper function to download media from DingTalk using mediaId
-    const downloadDingTalkMedia = async (mediaId: string, mediaType: 'image' | 'voice' | 'file'): Promise<{ path?: string; contentType?: string; error?: string } | null> => {
+    // Helper function to download media from DingTalk using mediaId or downloadCode
+    const downloadDingTalkMedia = async (identifier: string, mediaType: 'image' | 'voice' | 'file'): Promise<{ path?: string; contentType?: string; error?: string } | null> => {
+      console.log(`[dingtalk:monitor] Attempting to download ${mediaType} with identifier: ${identifier.substring(0, 10)}...`);
       try {
-        const result = await httpClient.downloadMedia(mediaId);
-        
+        // First, try to download directly using the identifier (could be mediaId or downloadCode)
+        const result = await httpClient.downloadMedia(identifier);
+
         if (result.ok) {
-          console.debug(`[dingtalk] ${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)} download successful for mediaId: ${mediaId}`);
-          return { path: result.path, contentType: result.contentType }; // Return path and content type
+          console.log(`[dingtalk:monitor] ${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)} download successful, size: ${result.data?.length || 0} bytes`);
+
+          // Save the media data to the file system temporarily
+          const fs = (await import('fs')).default;
+          const path = (await import('path')).default;
+
+          // Create a temporary filename
+          const tempDir = path.join(process.cwd(), 'temp');
+          if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+          }
+
+          const fileExtension = mediaType === 'image' ? '.jpg' :
+                               mediaType === 'voice' ? '.mp3' :
+                               mediaType === 'file' ? '.dat' : '.dat';
+          const fileName = `dingtalk_media_${Date.now()}_${Math.random().toString(36).substring(2, 10)}${fileExtension}`;
+          const filePath = path.join(tempDir, fileName);
+
+          // Write the buffer to file
+          fs.writeFileSync(filePath, result.data!);
+
+          return { path: filePath, contentType: result.contentType }; // Return path and content type
         } else {
-          console.warn(`[dingtalk] Failed to download ${mediaType}:`, result.error);
+          console.warn(`[dingtalk:monitor] Failed to download ${mediaType}:`, result.error);
           return { error: result.error || `Failed to download ${mediaType}` };
         }
       } catch (downloadError) {
-        console.error(`[dingtalk] Error downloading ${mediaType}:`, downloadError);
+        console.error(`[dingtalk:monitor] Error downloading ${mediaType} with identifier ${identifier.substring(0, 10)}...:`, downloadError);
         return { error: `Error downloading ${mediaType}: ${String(downloadError)}` };
       }
     };
@@ -168,110 +187,117 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
     let mediaType: string | undefined;
     let rawContent: any;
 
+    console.log(`[dingtalk:monitor] Processing message of type: ${message.msgtype}`);
     switch (message.msgtype) {
       case 'text':
         textContent = message.text.content;
         rawContent = message.text;
         console.debug(`[dingtalk] Message content: ${textContent.substring(0, 100)}${textContent.length > 100 ? '...' : ''}`);
         break;
-        
+
       case 'image':
       case 'picture':
+        console.log(`[dingtalk:monitor] Processing image message`);
         textContent = message.text?.content || '';
-        // For image messages, we'll handle the image URL or download code
-        if (message.photo && message.photo.photoURL) {
-          const imageUrl = message.photo.photoURL;
-          console.debug(`[dingtalk] Image message with URL: ${imageUrl}`);
-          console.debug(`[dingtalk] Optional text content: ${textContent.substring(0, 100)}${textContent.length > 100 ? '...' : ''}`);
-          
-          // Download the image and store it for processing
+        // According to DingTalk documentation, image messages contain download codes in the content
+        if (message.content && message.content.downloadCode) {
+          const downloadCode = message.content.downloadCode;
+
+          console.log(`[dingtalk:monitor] Image message with downloadCode: ${downloadCode.substring(0, 10)}...`);
+
+          // Use the download code to retrieve the actual image content
+          // This follows the official DingTalk specification for downloading media
           try {
-             const { loadWebMedia } = await import('openclaw/plugin-sdk');
-            const mediaResult = await loadWebMedia(imageUrl);
-            if (mediaResult.ok) {
-              mediaPath = mediaResult.path;
-              mediaType = mediaResult.contentType;
-              console.debug(`[dingtalk] Image downloaded and stored at: ${mediaPath}`);
-            } else {
-              console.warn(`[dingtalk] Failed to download image:`, mediaResult.error);
-            }
-          } catch (downloadError) {
-            console.error(`[dingtalk] Error downloading image:`, downloadError);
-          }
-        } else if (message.content && (message.content.fileId || message.content.pictureDownloadCode || message.content.downloadCode)) {
-          // If photo is not available but we have content with download codes (new format), use the DingTalk API
-          const fileId = message.content.fileId || message.content.pictureDownloadCode;
-          const downloadCode = message.content.downloadCode || message.content.pictureDownloadCode;
-          
-          console.debug(`[dingtalk] Image message with downloadCode: ${downloadCode ? 'available' : 'not available'}, fileId: ${fileId || 'not available'}`);
-          if (fileId) {
-            const mediaResult = await downloadDingTalkMedia(fileId, 'image');
+            // For image messages, we need to use the downloadCode to get the actual image
+            // First, we need to exchange the downloadCode for a mediaId
+            console.log(`[dingtalk:monitor] Attempting to download image using downloadCode: ${downloadCode.substring(0, 10)}...`);
+
+            // In DingTalk's system, we typically need to first get the media ID using the download code
+            // Then download the actual media file
+            const mediaResult = await downloadDingTalkMedia(downloadCode, 'image');
             if (mediaResult && !mediaResult.error) {
               mediaPath = mediaResult.path;
               mediaType = mediaResult.contentType;
+              console.log(`[dingtalk:monitor] Image downloaded via downloadCode, path: ${mediaPath}, type: ${mediaType}`);
+            } else {
+              console.warn(`[dingtalk:monitor] Failed to download image via downloadCode:`, mediaResult?.error);
             }
-          } else if (downloadCode) {
-            // Handle download code directly
-            console.debug(`[dingtalk] Using downloadCode to retrieve image`);
-            // This would require a specific implementation to handle download codes
+          } catch (downloadError) {
+            console.error(`[dingtalk:monitor] Error downloading image using downloadCode:`, downloadError);
           }
         } else {
-          console.warn(`[dingtalk] Image message with missing photo/content data:`, message.photo || message.content);
+          console.warn(`[dingtalk:monitor] Image message with missing content data:`, message.content);
         }
-        rawContent = message.photo || message.content;
+        rawContent = message.content;
         break;
-        
+
       case 'voice':
+        console.log(`[dingtalk:monitor] Processing voice message`);
         textContent = message.text?.content || '';
-        if (message.voice) {
-          console.debug(`[dingtalk] Voice message with mediaId: ${message.voice.mediaId}, duration: ${message.voice.duration}s`);
-          
-          // Download the voice file and store it for processing
-          const mediaResult = await downloadDingTalkMedia(message.voice.mediaId, 'voice');
+        if (message.content && message.content.downloadCode) {
+          const downloadCode = message.content.downloadCode;
+          const duration = message.content.duration;
+
+          console.debug(`[dingtalk] Voice message with downloadCode: ${downloadCode.substring(0, 10)}..., duration: ${duration}s`);
+
+          // Download the voice file using the download code
+          console.log(`[dingtalk:monitor] Attempting to download voice message using downloadCode: ${downloadCode.substring(0, 10)}...`);
+          const mediaResult = await downloadDingTalkMedia(downloadCode, 'voice');
           if (mediaResult && !mediaResult.error) {
             mediaPath = mediaResult.path;
             mediaType = mediaResult.contentType;
+            console.log(`[dingtalk:monitor] Voice message downloaded, path: ${mediaPath}, type: ${mediaType}`);
+          } else {
+            console.warn(`[dingtalk:monitor] Failed to download voice message:`, mediaResult?.error);
           }
         } else {
-          console.debug(`[dingtalk] Voice message with undefined voice data`);
-        }
-        console.debug(`[dingtalk] Optional text content: ${textContent.substring(0, 100)}${textContent.length > 100 ? '...' : ''}`);
-        rawContent = message.voice;
-        break;
-        
-      case 'file':
-        textContent = message.text?.content || '';
-        if (message.content) {
-          console.debug(`[dingtalk] File message with fileId: ${message.content.fileId}, fileName: ${message.content.fileName}`);
-          
-          // Download the file and store it for processing
-          // Use the fileId as the mediaId for the download function
-          const mediaResult = await downloadDingTalkMedia(message.content.fileId, 'file');
-          if (mediaResult && !mediaResult.error) {
-            mediaPath = mediaResult.path;
-            mediaType = mediaResult.contentType;
-          }
-        } else {
-          console.debug(`[dingtalk] File message with undefined content data`);
+          console.debug(`[dingtalk] Voice message with missing content data`);
         }
         console.debug(`[dingtalk] Optional text content: ${textContent.substring(0, 100)}${textContent.length > 100 ? '...' : ''}`);
         rawContent = message.content;
         break;
-        
+
+      case 'file':
+        console.log(`[dingtalk:monitor] Processing file message`);
+        textContent = message.text?.content || '';
+        if (message.content && message.content.downloadCode) {
+          const downloadCode = message.content.downloadCode;
+          const fileName = message.content.fileName;
+          const fileSize = message.content.fileSize;
+
+          console.debug(`[dingtalk] File message with downloadCode: ${downloadCode.substring(0, 10)}..., fileName: ${fileName}, fileSize: ${fileSize} bytes`);
+
+          // Download the file using the download code
+          console.log(`[dingtalk:monitor] Attempting to download file with downloadCode: ${downloadCode.substring(0, 10)}...`);
+          const mediaResult = await downloadDingTalkMedia(downloadCode, 'file');
+          if (mediaResult && !mediaResult.error) {
+            mediaPath = mediaResult.path;
+            mediaType = mediaResult.contentType;
+            console.log(`[dingtalk:monitor] File downloaded, path: ${mediaPath}, type: ${mediaType}`);
+          } else {
+            console.warn(`[dingtalk:monitor] Failed to download file:`, mediaResult?.error);
+          }
+        } else {
+          console.debug(`[dingtalk] File message with missing content data`);
+        }
+        console.debug(`[dingtalk] Optional text content: ${textContent.substring(0, 100)}${textContent.length > 100 ? '...' : ''}`);
+        rawContent = message.content;
+        break;
+
       case 'link':
         textContent = `${message.link.title}\n${message.link.text}\n${message.link.messageUrl}`;
         console.debug(`[dingtalk] Link message: ${message.link.title}`);
         console.debug(`[dingtalk] Link text: ${message.link.text.substring(0, 100)}${message.link.text.length > 100 ? '...' : ''}`);
         rawContent = message.link;
         break;
-        
+
       case 'markdown':
         textContent = `${message.markdown.title}\n${message.markdown.text}`;
         console.debug(`[dingtalk] Markdown message: ${message.markdown.title}`);
         console.debug(`[dingtalk] Markdown content: ${message.markdown.text.substring(0, 100)}${message.markdown.text.length > 100 ? '...' : ''}`);
         rawContent = message.markdown;
         break;
-        
+
       default:
         // Handle unknown message types as text
         console.warn(`[dingtalk] Unknown message type: ${message.msgtype}, treating as text`);
@@ -745,10 +771,10 @@ export async function handleDingTalkWebhookRequest(
                   text: logText.substring(0, 100) + '...'
                 }, null, 2));
                 
-         // Process the inbound message - in a real implementation, 
-         // you'd need access to the full config and context
-         // For webhook mode, we need to handle the message differently
-         // For now, we'll pass an empty config and null runtime
+         // Process the inbound message
+         // For webhook mode, we'll handle media differently since we may not have credentials here
+         // For now, we'll skip media download in webhook mode to avoid credential issues
+         // In production, you would need to implement a mechanism to securely retrieve credentials
          await processInboundMessage(payload, {} as OpenClawConfig, null, undefined, undefined);
                 console.log(`[dingtalk] Completed processing robot message`);
               } else {

@@ -53,6 +53,30 @@ Onboarding: select DingTalk and confirm the install prompt to fetch the plugin a
 
 If `webhookPath` is omitted, the plugin uses the webhook URL path.
 
+## Media Messages Support
+
+The plugin now supports rich media messages including:
+
+- **Images**: Send and receive image files (JPG, PNG, GIF, etc.)
+- **Files**: Share documents, PDFs, and other file types
+- **Audio**: Send and receive voice messages and audio files
+- **Video**: Share video content
+- **Links**: Rich link previews with titles and descriptions
+
+To send media messages programmatically, use the new media client:
+
+```typescript
+import { DingTalkMediaClient } from '@moltybob/dingtalk';
+
+const mediaClient = new DingTalkMediaClient(clientId, clientSecret);
+
+// Upload and send an image
+const uploadResult = await mediaClient.uploadMedia('/path/to/image.jpg', 'image');
+if (uploadResult.ok) {
+  await mediaClient.sendImageMessage(conversationId, uploadResult.mediaId!);
+}
+```
+
 ## Network Configuration for China Users
 
 If your development environment uses network proxies, domestic network traffic doesn't need to go through the proxy. Set the following environment variable to ensure proper connectivity to DingTalk services:
@@ -73,7 +97,7 @@ For complete development guide, testing strategies, and integration details, see
 
 - ✅ Bidirectional messaging (send and receive)
 - ✅ Direct and group chat support
-- ✅ Media message support
+- ✅ Media message support (images, files, audio, video)
 - ✅ Multiple account support
 - ✅ Security controls (pairing, allowlists)
 - ✅ Webhook and streaming modes
