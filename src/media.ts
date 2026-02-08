@@ -1,7 +1,8 @@
 import OpenApi from '@alicloud/openapi-client';
-import Util from '@alicloud/tea-util';
+import Util, { RuntimeOptions } from '@alicloud/tea-util';
 import * as $tea from '@alicloud/tea-typescript';
 import dingtalkim_1_0 from '@alicloud/dingtalk/im_1_0';
+import * as robot_1_0 from '@alicloud/dingtalk/robot_1_0';
 import { getDingTalkAccessToken } from './auth.js';
 
 /**
@@ -103,80 +104,92 @@ export class DingTalkMediaClient {
    * Download media file from DingTalk by mediaId or downloadCode
    * Reference: https://open.dingtalk.com/document/development/download-the-file-content-of-the-robot-receiving-message
    */
-  async downloadMedia(identifier: string): Promise<MediaDownloadResult> {
-    console.log(`[dingtalk:media] Starting download using identifier: ${identifier.substring(0, 10)}...`);
+  async downloadMedia(identifier: string, robotCode?: string): Promise<MediaDownloadResult> {
+    console.log(`[dingtalk:media] Starting download using identifier: ${identifier.substring(0, 10)}..., robotCode: ${(robotCode || this.clientId).substring(0, 10)}...`);
 
     try {
-      // Get access token
+      const RobotClient = (robot_1_0 as { default?: new (c: any) => any }).default;
+      const RobotMessageFileDownloadHeaders = robot_1_0.RobotMessageFileDownloadHeaders;
+      const RobotMessageFileDownloadRequest = robot_1_0.RobotMessageFileDownloadRequest;
+      if (!RobotClient || !RobotMessageFileDownloadHeaders || !RobotMessageFileDownloadRequest) {
+        console.error(`[dingtalk:media] SDK exports missing`);
+        throw new Error('DingTalk robot SDK exports not available');
+      }
+      const config = new OpenApi.default.Config({});
+      config.protocol = 'https';
+      config.regionId = 'central';
+      const client = new RobotClient(config);
+
       const token = await getDingTalkAccessToken(this.clientId, this.clientSecret);
       console.log(`[dingtalk:media] Retrieved access token for download`);
+      const headers = new RobotMessageFileDownloadHeaders({});
+      headers.xAcsDingtalkAccessToken = token;
 
-      // For binary downloads, we still need to use direct HTTP request
-      // since the Tea SDK might not handle binary data properly
-      const axios = (await import('axios')).default;
-
-      // According to DingTalk documentation, we use the getMediaFileByDownloadCode API
-      // to download media content using the download code received in robot messages
-      console.log(`[dingtalk:media] Sending download request using identifier: ${identifier.substring(0, 10)}...`);
-      const response = await axios.post('https://oapi.dingtalk.com/v1.0/im/files/download', {
-        downloadCode: identifier
-      }, {
-        params: {
-          access_token: token,
-        },
-        responseType: 'arraybuffer', // Get as binary data
+      const request = new RobotMessageFileDownloadRequest({
+        robotCode: robotCode || this.clientId,
+        downloadCode: identifier,
       });
 
-      if (response.status === 200) {
-        console.log(`[dingtalk:media] Download successful, content-type: ${response.headers['content-type']}, size: ${response.data.length} bytes`);
-        return {
-          ok: true,
-          data: Buffer.from(response.data),
-          contentType: response.headers['content-type'],
-        };
-      } else {
-        console.warn(`[dingtalk:media] Download failed with HTTP ${response.status}: ${response.statusText}`);
-        return {
-          ok: false,
-          error: `HTTP ${response.status}: ${response.statusText}`,
-        };
+      console.log(`[dingtalk:media] Calling robot messageFiles/download API...`);
+      const runtimeOptions = new RuntimeOptions({});
+      const response = await client.robotMessageFileDownloadWithOptions(request, headers, runtimeOptions);
+
+      const body = response?.body as { downloadUrl?: string } | undefined;
+      if (!body?.downloadUrl) {
+        console.warn(`[dingtalk:media] API response missing downloadUrl:`, JSON.stringify(body || response).substring(0, 300));
+        return { ok: false, error: 'API response missing downloadUrl' };
       }
+      console.log(`[dingtalk:media] Got downloadUrl, fetching file content...`);
+      const axios = (await import('axios')).default;
+      const fileResponse = await axios.get(body.downloadUrl, { responseType: 'arraybuffer', maxRedirects: 5 });
+      if (fileResponse.status !== 200) {
+        return { ok: false, error: `Download URL returned HTTP ${fileResponse.status}` };
+      }
+      const data = Buffer.from(fileResponse.data);
+      const contentType = (fileResponse.headers['content-type'] as string) || 'application/octet-stream';
+      console.log(`[dingtalk:media] Download successful via downloadUrl, size: ${data.length} bytes, contentType: ${contentType}`);
+      return { ok: true, data, contentType };
     } catch (error: any) {
       console.error(`[dingtalk:media] Download error using identifier ${identifier.substring(0, 10)}...:`, error.message || 'Unknown error');
-      // If the new API fails, try the legacy media/get API as fallback
+      if (error.errCode) console.error(`[dingtalk:media] Error code: ${error.errCode}`);
+      if (error.errMsg) console.error(`[dingtalk:media] Error message: ${error.errMsg}`);
+
+      const looksLikeDownloadCode = identifier.length > 50 && !/^[a-zA-Z0-9_-]{20,40}$/.test(identifier);
+      if (looksLikeDownloadCode) {
+        console.log(`[dingtalk:media] Skipping legacy media/get (identifier looks like downloadCode)`);
+        return { ok: false, error: error.message || 'Robot file download failed' };
+      }
       try {
-        console.log(`[dingtalk:media] Trying legacy media/get API as fallback`);
+        console.log(`[dingtalk:media] Trying legacy media/get API as fallback (media_id)`);
         const axios = (await import('axios')).default;
         const token = await getDingTalkAccessToken(this.clientId, this.clientSecret);
-
         const response = await axios.get('https://oapi.dingtalk.com/media/get', {
-          params: {
-            access_token: token,
-            media_id: identifier,
-          },
-          responseType: 'arraybuffer', // Get as binary data
+          params: { access_token: token, media_id: identifier },
+          responseType: 'arraybuffer',
         });
-
-        if (response.status === 200) {
-          console.log(`[dingtalk:media] Legacy download successful, content-type: ${response.headers['content-type']}, size: ${response.data.length} bytes`);
-          return {
-            ok: true,
-            data: Buffer.from(response.data),
-            contentType: response.headers['content-type'],
-          };
-        } else {
-          console.warn(`[dingtalk:media] Legacy download failed with HTTP ${response.status}: ${response.statusText}`);
-          return {
-            ok: false,
-            error: `HTTP ${response.status}: ${response.statusText}`,
-          };
+        if (response.status !== 200) {
+          return { ok: false, error: `HTTP ${response.status}: ${response.statusText}` };
         }
+        const contentType = (response.headers['content-type'] as string) || '';
+        if (contentType.includes('application/json')) {
+          const raw = Buffer.from(response.data).toString('utf8');
+          let json: { errcode?: number; errmsg?: string };
+          try {
+            json = JSON.parse(raw);
+          } catch {
+            return { ok: false, error: 'Legacy API returned invalid JSON' };
+          }
+          if (json.errcode != null && json.errcode !== 0) {
+            console.warn(`[dingtalk:media] Legacy media/get error: errcode=${json.errcode}, errmsg=${json.errmsg}`);
+            return { ok: false, error: json.errmsg || `errcode ${json.errcode}` };
+          }
+        }
+        const data = Buffer.from(response.data);
+        console.log(`[dingtalk:media] Legacy download successful, content-type: ${contentType}, size: ${data.length} bytes`);
+        return { ok: true, data, contentType };
       } catch (fallbackError: any) {
         console.error(`[dingtalk:media] Both download methods failed:`, fallbackError.message || 'Unknown error');
-        return {
-          ok: false,
-          error: error.message || fallbackError.message || 'Unknown error downloading media',
-        };
+        return { ok: false, error: error.message || fallbackError.message || 'Unknown error downloading media' };
       }
     }
   }

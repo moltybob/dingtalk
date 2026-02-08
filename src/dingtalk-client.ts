@@ -1,6 +1,7 @@
-import OpenApi from '@alicloud/openapi-client';
-import Util from '@alicloud/tea-util';
+import OpenApi, * as $OpenApi from '@alicloud/openapi-client';
+import Util, { RuntimeOptions } from '@alicloud/tea-util';
 import * as $tea from '@alicloud/tea-typescript';
+import * as robot_1_0 from '@alicloud/dingtalk/robot_1_0';
 import { getDingTalkAccessToken } from './auth.js';
 
 export interface MediaDownloadResult {
@@ -35,7 +36,7 @@ export class DingTalkHttpClient {
    */
   async callApi<T = any>(endpoint: string, params?: Record<string, any>): Promise<T> {
     const token = await this.getAccessToken();
-    const config = new OpenApi.default.Config({
+    const config = new $OpenApi.Config({
       accessKeyId: this.appKey,
       accessKeySecret: this.appSecret,
     });
@@ -44,7 +45,7 @@ export class DingTalkHttpClient {
     config.regionId = "cn-hangzhou";
 
     // Create a common request object
-    const request = new OpenApi.default.OpenApiRequest({
+    const request = new $OpenApi.OpenApiRequest({
       protocol: "https",
       method: "GET",
       pathname: endpoint,
@@ -58,7 +59,7 @@ export class DingTalkHttpClient {
     });
 
     // Create the client
-    const client = new OpenApi.default.Client(config);
+    const client = new OpenApi(config);
 
     try {
       const response = await client.callApi(request);
@@ -72,72 +73,119 @@ export class DingTalkHttpClient {
    * Download media file by mediaId or downloadCode
    * Reference: https://open.dingtalk.com/document/development/download-the-file-content-of-the-robot-receiving-message
    */
-  async downloadMedia(identifier: string): Promise<MediaDownloadResult> {
-    console.log(`[dingtalk:client] Starting download using identifier: ${identifier.substring(0, 10)}...`);
+  async downloadMedia(identifier: string, robotCode?: string): Promise<MediaDownloadResult> {
+    console.log(`[dingtalk:client] Starting download using identifier: ${identifier.substring(0, 10)}..., robotCode: ${(robotCode || this.appKey).substring(0, 10)}...`);
     try {
-      // For media download, we still need to use direct HTTP request
-      // since the Tea SDK might not handle binary data properly
-      const axios = (await import('axios')).default;
-      const token = await this.getAccessToken();
+      // Use the official DingTalk robot SDK: POST /v1.0/robot/messageFiles/download returns downloadUrl, then we GET that URL for binary
+      const RobotClient = (robot_1_0 as { default?: new (c: any) => any; RobotMessageFileDownloadHeaders?: new (o: any) => any; RobotMessageFileDownloadRequest?: new (o: any) => any }).default;
+      const RobotMessageFileDownloadHeaders = robot_1_0.RobotMessageFileDownloadHeaders;
+      const RobotMessageFileDownloadRequest = robot_1_0.RobotMessageFileDownloadRequest;
+      if (!RobotClient || !RobotMessageFileDownloadHeaders || !RobotMessageFileDownloadRequest) {
+        console.error(`[dingtalk:client] SDK exports missing: RobotClient=${!!RobotClient}, Headers=${!!RobotMessageFileDownloadHeaders}, Request=${!!RobotMessageFileDownloadRequest}`);
+        throw new Error('DingTalk robot SDK exports not available');
+      }
+      const config = new $OpenApi.Config({});
+      config.protocol = 'https';
+      config.regionId = 'central';
+      const client = new RobotClient(config);
 
-      // According to DingTalk documentation, we use the getMediaFileByDownloadCode API
-      // to download media content using the download code received in robot messages
-      console.log(`[dingtalk:client] Sending download request using identifier: ${identifier.substring(0, 10)}...`);
-      const response = await axios.post('https://oapi.dingtalk.com/v1.0/im/files/download', {
-        downloadCode: identifier
-      }, {
-        params: {
-          access_token: token,
-        },
-        responseType: 'arraybuffer', // Get as binary data
+      const token = await this.getAccessToken();
+      const headers = new RobotMessageFileDownloadHeaders({});
+      headers.xAcsDingtalkAccessToken = token;
+
+      const request = new RobotMessageFileDownloadRequest({
+        robotCode: robotCode || this.appKey,
+        downloadCode: identifier,
       });
 
-      if (response.status === 200) {
-        console.log(`[dingtalk:client] Download successful, content-type: ${response.headers['content-type']}, size: ${response.data.length} bytes`);
-        // In a real implementation, we'd save this to the media store
-        // For now, we return the data buffer
-        return {
-          ok: true,
-          data: Buffer.from(response.data),
-          contentType: response.headers['content-type'],
-        };
-      } else {
-        console.warn(`[dingtalk:client] Download failed with HTTP ${response.status}: ${response.statusText}`);
+      console.log(`[dingtalk:client] Calling robot messageFiles/download API...`);
+      const runtimeOptions = new RuntimeOptions({});
+      const response = await client.robotMessageFileDownloadWithOptions(request, headers, runtimeOptions);
+
+      // API returns { body: { downloadUrl: "..." } }, not binary; we must GET the URL to get file content
+      const body = response?.body as { downloadUrl?: string } | undefined;
+      if (!body?.downloadUrl) {
+        console.warn(`[dingtalk:client] API response missing downloadUrl:`, JSON.stringify(body || response).substring(0, 300));
         return {
           ok: false,
-          error: `HTTP ${response.status}: ${response.statusText}`,
+          error: 'API response missing downloadUrl',
         };
       }
+      console.log(`[dingtalk:client] Got downloadUrl, fetching file content...`);
+      const axios = (await import('axios')).default;
+      const fileResponse = await axios.get(body.downloadUrl, {
+        responseType: 'arraybuffer',
+        maxRedirects: 5,
+      });
+      if (fileResponse.status !== 200) {
+        return {
+          ok: false,
+          error: `Download URL returned HTTP ${fileResponse.status}`,
+        };
+      }
+      const data = Buffer.from(fileResponse.data);
+      const contentType = (fileResponse.headers['content-type'] as string) || 'application/octet-stream';
+      console.log(`[dingtalk:client] Download successful via downloadUrl, size: ${data.length} bytes, contentType: ${contentType}`);
+      return {
+        ok: true,
+        data,
+        contentType,
+      };
     } catch (error: any) {
       console.error(`[dingtalk:client] Download error using identifier ${identifier.substring(0, 10)}...:`, error.message || 'Unknown error');
-      // If the new API fails, try the legacy media/get API as fallback
+      if (error.errCode) console.error(`[dingtalk:client] Error code: ${error.errCode}`);
+      if (error.errMsg) console.error(`[dingtalk:client] Error message: ${error.errMsg}`);
+
+      // Fallback: legacy media/get only works with media_id (uploaded media), not downloadCode; skip if identifier looks like downloadCode (long base64-like)
+      const looksLikeDownloadCode = identifier.length > 50 && !/^[a-zA-Z0-9_-]{20,40}$/.test(identifier);
+      if (looksLikeDownloadCode) {
+        console.log(`[dingtalk:client] Skipping legacy media/get fallback (identifier looks like downloadCode, media/get expects media_id)`);
+        return {
+          ok: false,
+          error: error.message || 'Robot file download failed (use downloadCode with robot API only)',
+        };
+      }
       try {
-        console.log(`[dingtalk:client] Trying legacy media/get API as fallback`);
+        console.log(`[dingtalk:client] Trying legacy media/get API as fallback (media_id)`);
         const axios = (await import('axios')).default;
         const token = await this.getAccessToken();
 
         const response = await axios.get('https://oapi.dingtalk.com/media/get', {
-          params: {
-            access_token: token,
-            media_id: identifier,
-          },
-          responseType: 'arraybuffer', // Get as binary data
+          params: { access_token: token, media_id: identifier },
+          responseType: 'arraybuffer',
         });
 
-        if (response.status === 200) {
-          console.log(`[dingtalk:client] Legacy download successful, content-type: ${response.headers['content-type']}, size: ${response.data.length} bytes`);
-          return {
-            ok: true,
-            data: Buffer.from(response.data),
-            contentType: response.headers['content-type'],
-          };
-        } else {
-          console.warn(`[dingtalk:client] Legacy download failed with HTTP ${response.status}: ${response.statusText}`);
+        if (response.status !== 200) {
           return {
             ok: false,
             error: `HTTP ${response.status}: ${response.statusText}`,
           };
         }
+        const contentType = (response.headers['content-type'] as string) || '';
+        // Legacy API may return JSON error body with content-type application/json
+        if (contentType.includes('application/json')) {
+          const raw = Buffer.from(response.data).toString('utf8');
+          let json: { errcode?: number; errmsg?: string };
+          try {
+            json = JSON.parse(raw);
+          } catch {
+            return { ok: false, error: 'Legacy API returned invalid JSON' };
+          }
+          if (json.errcode != null && json.errcode !== 0) {
+            console.warn(`[dingtalk:client] Legacy media/get error response: errcode=${json.errcode}, errmsg=${json.errmsg}`);
+            return {
+              ok: false,
+              error: json.errmsg || `errcode ${json.errcode}`,
+            };
+          }
+        }
+        const data = Buffer.from(response.data);
+        console.log(`[dingtalk:client] Legacy download successful, content-type: ${contentType}, size: ${data.length} bytes`);
+        return {
+          ok: true,
+          data,
+          contentType,
+        };
       } catch (fallbackError: any) {
         console.error(`[dingtalk:client] Both download methods failed:`, fallbackError.message || 'Unknown error');
         return {
@@ -190,7 +238,7 @@ export class DingTalkHttpClient {
       const token = await this.getAccessToken();
 
       // Create config for API call
-      const config = new OpenApi.default.Config({
+      const config = new $OpenApi.Config({
         accessKeyId: this.appKey,
         accessKeySecret: this.appSecret,
       });
@@ -199,7 +247,7 @@ export class DingTalkHttpClient {
       config.regionId = "cn-hangzhou";
 
       // Create a common request object for sending message to user
-      const request = new OpenApi.default.OpenApiRequest({
+      const request = new $OpenApi.OpenApiRequest({
         protocol: "https",
         method: "POST",
         pathname: "/topapi/message/corpconversation/asyncsend_v2",
@@ -217,7 +265,7 @@ export class DingTalkHttpClient {
       });
 
       // Create the client
-      const client = new OpenApi.default.Client(config);
+      const client = new OpenApi(config);
 
       try {
         const response = await client.callApi(request);
@@ -241,7 +289,7 @@ export class DingTalkHttpClient {
       const token = await this.getAccessToken();
 
       // Create config for API call
-      const config = new OpenApi.default.Config({
+      const config = new $OpenApi.Config({
         accessKeyId: this.appKey,
         accessKeySecret: this.appSecret,
       });
@@ -250,7 +298,7 @@ export class DingTalkHttpClient {
       config.regionId = "cn-hangzhou";
 
       // Create a common request object for sending message to chat
-      const request = new OpenApi.default.OpenApiRequest({
+      const request = new $OpenApi.OpenApiRequest({
         protocol: "https",
         method: "POST",
         pathname: "/chat/send",
@@ -267,7 +315,7 @@ export class DingTalkHttpClient {
       });
 
       // Create the client
-      const client = new OpenApi.default.Client(config);
+      const client = new OpenApi(config);
 
       try {
         const response = await client.callApi(request);
@@ -291,7 +339,7 @@ export class DingTalkHttpClient {
       const token = await this.getAccessToken();
 
       // Create config for API call
-      const config = new OpenApi.default.Config({
+      const config = new $OpenApi.Config({
         accessKeyId: this.appKey,
         accessKeySecret: this.appSecret,
       });
@@ -300,7 +348,7 @@ export class DingTalkHttpClient {
       config.regionId = "cn-hangzhou";
 
       // Create a common request object for getting user info
-      const request = new OpenApi.default.OpenApiRequest({
+      const request = new $OpenApi.OpenApiRequest({
         protocol: "https",
         method: "GET",
         pathname: "/topapi/v2/user/get",
@@ -314,7 +362,7 @@ export class DingTalkHttpClient {
       });
 
       // Create the client
-      const client = new OpenApi.default.Client(config);
+      const client = new OpenApi(config);
 
       try {
         const response = await client.callApi(request);
@@ -338,7 +386,7 @@ export class DingTalkHttpClient {
       const token = await this.getAccessToken();
 
       // Create config for API call
-      const config = new OpenApi.default.Config({
+      const config = new $OpenApi.Config({
         accessKeyId: this.appKey,
         accessKeySecret: this.appSecret,
       });
@@ -347,7 +395,7 @@ export class DingTalkHttpClient {
       config.regionId = "cn-hangzhou";
 
       // Create a common request object for getting department list
-      const request = new OpenApi.default.OpenApiRequest({
+      const request = new $OpenApi.OpenApiRequest({
         protocol: "https",
         method: "GET",
         pathname: "/department/list",
@@ -361,7 +409,7 @@ export class DingTalkHttpClient {
       });
 
       // Create the client
-      const client = new OpenApi.default.Client(config);
+      const client = new OpenApi(config);
 
       try {
         const response = await client.callApi(request);

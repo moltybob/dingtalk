@@ -1,5 +1,5 @@
 import Util from '@alicloud/tea-util';
-import dingtalkrobot_1_0 from '@alicloud/dingtalk/robot_1_0';
+import * as robot_1_0 from '@alicloud/dingtalk/robot_1_0';
 import OpenApi from '@alicloud/openapi-client';
 import * as $tea from '@alicloud/tea-typescript';
 import { getDingTalkAccessToken } from './auth.js';
@@ -296,11 +296,11 @@ export async function sendMessageDingTalk(
       // Add access token to header
       config.authorization = `Bearer ${accessToken}`;
 
-      // Create the robot client
-      let client = new dingtalkrobot_1_0(config);
+      // Create the robot client (default export is Client; use type assertion for ESM/CJS interop)
+      let client = new (robot_1_0 as { default: new (c: any) => any }).default(config);
 
       // Create the request to send message to user
-      let sendByCodeRequest = new dingtalkrobot_1_0.OrgRobotSendMessageRequest({
+      let sendByCodeRequest = new robot_1_0.OrgRobotSendMessageRequest({
         robotCode: options.agentId, // Use agentId as robot code
         userIds: [to], // Send to specific user ID
         msg: JSON.stringify(messagePayload), // Convert message to JSON string
@@ -393,10 +393,10 @@ export async function sendBatchToOneOnOneChats(
     config.authorization = `Bearer ${accessToken}`;
 
     // Create the robot client
-    let client = new dingtalkrobot_1_0(config);
+    let client = new (robot_1_0 as { default: new (c: any) => any }).default(config);
 
     // Create the request to send message to multiple users
-    let sendByCodeRequest = new dingtalkrobot_1_0.OrgRobotSendMessageRequest({
+    let sendByCodeRequest = new robot_1_0.OrgRobotSendMessageRequest({
       robotCode: options.agentId, // Use agentId as robot code
       userIds: userIds, // Send to multiple user IDs
       msg: JSON.stringify(message), // Convert message to JSON string

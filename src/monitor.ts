@@ -63,13 +63,22 @@ interface ImageRobotMessage extends BaseRobotMessage {
 interface VoiceRobotMessage extends BaseRobotMessage {
   msgtype: 'voice';
   content: {
-    downloadCode: string;  // Used to download the actual voice content
-    duration: number;      // Duration of the voice message in seconds
-    fileSize: string;      // Size of the voice file in bytes
+    downloadCode: string;
+    duration: number;
+    fileSize?: string;
   };
-  text?: {
-    content: string; // Optional text content with the voice message
+  text?: { content: string };
+}
+
+// Audio message type (same structure as voice; doc uses msgtype "audio" with content.recognition for ASR text)
+interface AudioRobotMessage extends BaseRobotMessage {
+  msgtype: 'audio';
+  content: {
+    downloadCode: string;
+    duration?: number;
+    recognition?: string;
   };
+  text?: { content: string };
 }
 
 // File message type - following DingTalk official specification
@@ -105,7 +114,28 @@ interface MarkdownRobotMessage extends BaseRobotMessage {
   };
 }
 
-type RobotMessage = TextRobotMessage | ImageRobotMessage | VoiceRobotMessage | FileRobotMessage | LinkRobotMessage | MarkdownRobotMessage;
+// Rich text message type - text and/or inline images (see https://open.dingtalk.com/document/development/receive-message)
+interface RichTextRobotMessage extends BaseRobotMessage {
+  msgtype: 'richText';
+  content: {
+    richText: Array<
+      | { text: string }
+      | { downloadCode: string; type: string }
+    >;
+  };
+}
+
+// Video message type (receive-message doc)
+interface VideoRobotMessage extends BaseRobotMessage {
+  msgtype: 'video';
+  content?: {
+    downloadCode: string;
+    videoType?: string;
+    duration?: number;
+  };
+}
+
+type RobotMessage = TextRobotMessage | ImageRobotMessage | VoiceRobotMessage | AudioRobotMessage | FileRobotMessage | LinkRobotMessage | MarkdownRobotMessage | RichTextRobotMessage | VideoRobotMessage;
 
 // Directly handle the inbound message using the runtime channel system
 // This follows the same pattern as other channel extensions (Matrix, etc.)
@@ -146,26 +176,45 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
       console.log(`[dingtalk:monitor] Attempting to download ${mediaType} with identifier: ${identifier.substring(0, 10)}...`);
       try {
         // First, try to download directly using the identifier (could be mediaId or downloadCode)
-        const result = await httpClient.downloadMedia(identifier);
+        // Pass the robotCode from the message if available
+        const result = await httpClient.downloadMedia(identifier, message.robotCode);
 
         if (result.ok) {
-          console.log(`[dingtalk:monitor] ${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)} download successful, size: ${result.data?.length || 0} bytes`);
+          const contentType = result.contentType || '';
+          if (contentType.includes('application/json')) {
+            console.warn(`[dingtalk:monitor] Rejecting download: response is JSON (likely API error), not binary. contentType=${contentType}`);
+            return { error: 'Download returned JSON instead of binary (check API/identifier)' };
+          }
+          console.log(`[dingtalk:monitor] ${mediaType.charAt(0).toUpperCase() + mediaType.slice(1)} download successful, size: ${result.data?.length || 0} bytes, contentType: ${contentType}`);
 
-          // Save the media data to the file system temporarily
+          // Save under os.tmpdir() so path is NOT under OpenClaw getMediaDir(). Then stageSandboxMedia()
+          // does not copy/rewrite MediaPath to a relative path; we keep an absolute path. OpenClaw's
+          // attachment cache resolveLocalPath() uses path.resolve() for relative paths (vs process.cwd()),
+          // so relative paths after staging point to the wrong place; keeping absolute avoids that.
           const fs = (await import('fs')).default;
           const path = (await import('path')).default;
-
-          // Create a temporary filename
-          const tempDir = path.join(process.cwd(), 'temp');
-          if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
+          const os = (await import('os')).default;
+          const mediaInboundDir = path.join(os.tmpdir(), 'dingtalk-media');
+          if (!fs.existsSync(mediaInboundDir)) {
+            fs.mkdirSync(mediaInboundDir, { recursive: true });
           }
 
-          const fileExtension = mediaType === 'image' ? '.jpg' :
-                               mediaType === 'voice' ? '.mp3' :
-                               mediaType === 'file' ? '.dat' : '.dat';
+          // Use actual contentType so saved file has correct extension (e.g. .png for image/png); avoids readers treating PNG as corrupt
+          const ct = (result.contentType || '').toLowerCase().split(';')[0].trim();
+          const extByContentType: Record<string, string> = {
+            'image/png': '.png',
+            'image/jpeg': '.jpg',
+            'image/jpg': '.jpg',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'audio/mpeg': '.mp3',
+            'audio/mp3': '.mp3',
+            'audio/mp4': '.m4a',
+            'audio/wav': '.wav',
+          };
+          const fileExtension = extByContentType[ct] ?? (mediaType === 'image' ? '.png' : mediaType === 'voice' ? '.mp3' : '.dat');
           const fileName = `dingtalk_media_${Date.now()}_${Math.random().toString(36).substring(2, 10)}${fileExtension}`;
-          const filePath = path.join(tempDir, fileName);
+          const filePath = path.join(mediaInboundDir, fileName);
 
           // Write the buffer to file
           fs.writeFileSync(filePath, result.data!);
@@ -232,15 +281,16 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
         break;
 
       case 'voice':
-        console.log(`[dingtalk:monitor] Processing voice message`);
-        textContent = message.text?.content || '';
-        if (message.content && message.content.downloadCode) {
-          const downloadCode = message.content.downloadCode;
-          const duration = message.content.duration;
+      case 'audio': {
+        console.log(`[dingtalk:monitor] Processing voice/audio message`);
+        const voiceMsg = message as VoiceRobotMessage | AudioRobotMessage;
+        textContent = voiceMsg.text?.content || (voiceMsg as AudioRobotMessage).content?.recognition || '';
+        if (voiceMsg.content && voiceMsg.content.downloadCode) {
+          const downloadCode = voiceMsg.content.downloadCode;
+          const duration = (voiceMsg.content as { duration?: number }).duration;
 
           console.debug(`[dingtalk] Voice message with downloadCode: ${downloadCode.substring(0, 10)}..., duration: ${duration}s`);
 
-          // Download the voice file using the download code
           console.log(`[dingtalk:monitor] Attempting to download voice message using downloadCode: ${downloadCode.substring(0, 10)}...`);
           const mediaResult = await downloadDingTalkMedia(downloadCode, 'voice');
           if (mediaResult && !mediaResult.error) {
@@ -254,8 +304,9 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
           console.debug(`[dingtalk] Voice message with missing content data`);
         }
         console.debug(`[dingtalk] Optional text content: ${textContent.substring(0, 100)}${textContent.length > 100 ? '...' : ''}`);
-        rawContent = message.content;
+        rawContent = voiceMsg.content;
         break;
+      }
 
       case 'file':
         console.log(`[dingtalk:monitor] Processing file message`);
@@ -284,6 +335,22 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
         rawContent = message.content;
         break;
 
+      case 'video': {
+        console.log(`[dingtalk:monitor] Processing video message`);
+        const videoMsg = message as VideoRobotMessage;
+        textContent = '';
+        if (videoMsg.content?.downloadCode) {
+          const mediaResult = await downloadDingTalkMedia(videoMsg.content.downloadCode, 'file');
+          if (mediaResult && !mediaResult.error) {
+            mediaPath = mediaResult.path;
+            mediaType = mediaResult.contentType || 'video/mp4';
+            console.log(`[dingtalk:monitor] Video downloaded, path: ${mediaPath}`);
+          }
+        }
+        rawContent = videoMsg.content;
+        break;
+      }
+
       case 'link':
         textContent = `${message.link.title}\n${message.link.text}\n${message.link.messageUrl}`;
         console.debug(`[dingtalk] Link message: ${message.link.title}`);
@@ -298,18 +365,59 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
         rawContent = message.markdown;
         break;
 
+      case 'richText': {
+        // content.richText: array of { text } or { downloadCode, type: 'picture' } (see receive-message doc)
+        console.log(`[dingtalk:monitor] Processing richText message`);
+        const richText = (message as RichTextRobotMessage).content?.richText;
+        const textParts: string[] = [];
+        if (Array.isArray(richText)) {
+          for (const el of richText) {
+            if (el && 'text' in el && typeof el.text === 'string') {
+              // Avoid duplicate consecutive text (e.g. same phrase twice from client)
+              if (textParts[textParts.length - 1] !== el.text) textParts.push(el.text);
+            } else if (el && 'downloadCode' in el && el.type === 'picture') {
+              if (!mediaPath) {
+                try {
+                  const mediaResult = await downloadDingTalkMedia(el.downloadCode, 'image');
+                  if (mediaResult && !mediaResult.error) {
+                    mediaPath = mediaResult.path;
+                    mediaType = mediaResult.contentType;
+                    console.log(`[dingtalk:monitor] RichText inline image downloaded, path: ${mediaPath}`);
+                  }
+                } catch (e) {
+                  console.warn(`[dingtalk:monitor] Failed to download richText image:`, e);
+                }
+              }
+              textParts.push('[Image]');
+            }
+          }
+        }
+        textContent = textParts.join(' ').trim() || '';
+        rawContent = (message as RichTextRobotMessage).content;
+        break;
+      }
+
       default:
-        // Handle unknown message types as text
+        // Handle unknown message types as text (e.g. audio/video if not explicitly handled)
         console.warn(`[dingtalk] Unknown message type: ${message.msgtype}, treating as text`);
         textContent = JSON.stringify(message);
         rawContent = message;
     }
 
+    // When user sends only media (e.g. image with no caption), provide a short body so the AI doesn't respond "no text"
+    const hasText = Boolean(textContent && String(textContent).trim());
+    const mediaPlaceholder = mediaPath
+      ? (mediaType?.startsWith('image') ? '[User sent an image]' : mediaType?.startsWith('audio') || mediaType?.includes('voice') ? '[User sent a voice message]' : mediaType?.startsWith('video') ? '[User sent a video]' : '[User sent a file]')
+      : '';
+    const effectiveBody = hasText ? textContent : mediaPlaceholder;
+
+    // OpenClaw inbound contract: MsgContext uses MediaPath (absolute path so staging does not rewrite; attachment cache reads from path), MediaType, optional MediaUrl. normalizeAttachments(ctx) builds from these.
+
     // Format as a message context that OpenClaw can process
     const ctxPayload = {
-      Body: textContent,                                    // Main message body
-      RawBody: textContent,                                 // Raw message content
-      CommandBody: textContent,                             // Command body
+      Body: effectiveBody,                                   // Main message body (never empty when media present)
+      RawBody: effectiveBody,                                // Raw message content
+      CommandBody: effectiveBody,                            // Command body
       From: `dingtalk:${senderId}`,                          // Format sender as channel:id
       To: `dingtalk:${message.chatbotUserId}`,               // Format recipient as channel:id
       SessionKey: route.sessionKey,                          // Use resolved session key from route
@@ -322,23 +430,26 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
       Surface: "dingtalk" as const,
       MessageSid: msgId,                                     // Use message ID
       Timestamp: createAt,                                   // Use creation timestamp
-      CommandAuthorized: true,                               // For now, assume authorized
+      CommandAuthorized: true,                                // For now, assume authorized
       OriginatingChannel: "dingtalk" as const,
-      OriginatingTo: `dingtalk:${conversationId}`,          // Route back to same conversation
+      OriginatingTo: `dingtalk:${conversationId}`,           // Route back to same conversation
       // Additional fields
       isAdmin: message.isAdmin,
       isInAtList: message.isInAtList,
       robotCode: message.robotCode,
       sessionWebhook: message.sessionWebhook,
-      // Media fields for non-text messages
+      // Media: absolute path (saved under os.tmpdir() so staging does not rewrite); MediaType for normalizeAttachments
       MediaPath: mediaPath,
       MediaType: mediaType,
-      MediaUrl: mediaPath, // Use the stored path as media URL
+      MediaUrl: mediaPath,
       // Raw message data
       RawMessageData: rawContent,
       RawMessageType: message.msgtype,
     };
 
+    if (mediaPath) {
+      console.log(`[dingtalk:monitor] Passing MediaPath to OpenClaw: ${mediaPath} (absolute: ${mediaPath.startsWith('/')})`);
+    }
     console.debug(`[dingtalk] Formatted inbound message context for processing`);
 
     // Record the inbound session
@@ -394,7 +505,7 @@ async function processInboundMessage(message: RobotMessage, config: OpenClawConf
 
     console.debug(`[dingtalk] Message dispatched successfully via runtime`);
     
-    console.log(`[dingtalk] Received ${message.msgtype} message from ${senderNick}: ${textContent.substring(0, 50)}${textContent.length > 50 ? '...' : ''}`);
+    console.log(`[dingtalk] Received ${message.msgtype} message from ${senderNick}: ${String(effectiveBody).substring(0, 50)}${String(effectiveBody).length > 50 ? '...' : ''}`);
   } catch (error) {
     console.error(`[dingtalk] Error accessing DingTalk runtime or processing message:`, error);
     // Fallback: try using the passed runtime if DingTalk runtime is not available
@@ -447,19 +558,30 @@ export async function monitorDingTalkProvider(ctx: MonitorContext) {
                 logContent = payload.text?.content || '';
                 break;
               case 'image':
-                logContent = payload.text?.content || `Image: ${payload.photo?.photoURL}`;
+              case 'picture':
+                logContent = (payload as ImageRobotMessage).text?.content || `Image`;
                 break;
               case 'voice':
-                logContent = payload.text?.content || `Voice message`;
+              case 'audio':
+                logContent = (payload as VoiceRobotMessage).text?.content || (payload as { content?: { recognition?: string } }).content?.recognition || 'Voice message';
                 break;
               case 'file':
-                logContent = payload.text?.content || `File: ${payload.file?.fileName}`;
+                logContent = (payload as FileRobotMessage).text?.content || `File: ${(payload as FileRobotMessage).content?.fileName || ''}`;
                 break;
               case 'link':
-                logContent = payload.link?.title || payload.link?.text || 'Link message';
+                logContent = (payload as LinkRobotMessage).link?.title || (payload as LinkRobotMessage).link?.text || 'Link message';
                 break;
               case 'markdown':
-                logContent = payload.markdown?.title || payload.markdown?.text || 'Markdown message';
+                logContent = (payload as MarkdownRobotMessage).markdown?.title || (payload as MarkdownRobotMessage).markdown?.text || 'Markdown message';
+                break;
+              case 'richText': {
+                const rt = (payload as RichTextRobotMessage).content?.richText;
+                const first = Array.isArray(rt) ? rt.find((e: any) => e?.text) : null;
+                logContent = first && 'text' in first ? first.text : 'Rich text';
+                break;
+              }
+              case 'video':
+                logContent = 'Video message';
                 break;
               default:
                 logContent = JSON.stringify(payload);
@@ -745,19 +867,30 @@ export async function handleDingTalkWebhookRequest(
                     logText = payload.text?.content || '';
                     break;
                   case 'image':
-                    logText = payload.text?.content || `Image: ${payload.photo?.photoURL}`;
+                  case 'picture':
+                    logText = (payload as ImageRobotMessage).text?.content || 'Image';
                     break;
                   case 'voice':
-                    logText = payload.text?.content || `Voice: ${payload.voice?.mediaId}`;
+                  case 'audio':
+                    logText = (payload as VoiceRobotMessage).text?.content || (payload as { content?: { recognition?: string } }).content?.recognition || 'Voice message';
                     break;
                   case 'file':
-                    logText = payload.text?.content || `File: ${payload.file?.fileName}`;
+                    logText = (payload as FileRobotMessage).text?.content || `File: ${(payload as FileRobotMessage).content?.fileName || ''}`;
                     break;
                   case 'link':
-                    logText = `${payload.link?.title} - ${payload.link?.text}`;
+                    logText = `${(payload as LinkRobotMessage).link?.title} - ${(payload as LinkRobotMessage).link?.text}`;
                     break;
                   case 'markdown':
-                    logText = `${payload.markdown?.title} - ${payload.markdown?.text}`;
+                    logText = `${(payload as MarkdownRobotMessage).markdown?.title} - ${(payload as MarkdownRobotMessage).markdown?.text}`;
+                    break;
+                  case 'richText': {
+                    const rt = (payload as RichTextRobotMessage).content?.richText;
+                    const first = Array.isArray(rt) ? rt.find((e: any) => e?.text) : null;
+                    logText = first && 'text' in first ? first.text : 'Rich text';
+                    break;
+                  }
+                  case 'video':
+                    logText = 'Video message';
                     break;
                   default:
                     logText = JSON.stringify(payload);
