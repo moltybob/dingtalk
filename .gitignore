@@ -36,6 +36,9 @@ coverage/
 .env.production
 .env.development
 
+# Git 凭据（切勿提交）
+.git-credentials
+
 # 日志文件
 *.log
 
