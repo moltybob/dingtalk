@@ -6,6 +6,7 @@ export const DingTalkConfigSchema = z.object({
   clientSecret: z.string().optional(),
   agentId: z.string().optional(), // Required for sending messages
   dmPolicy: z.enum(['open', 'pairing', 'allowlist']).optional(),
+  groupPolicy: z.enum(['open', 'allowlist', 'disabled']).optional(),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   webhookUrl: z.string().url().optional(),
   webhookSecret: z.string().min(8).optional(),

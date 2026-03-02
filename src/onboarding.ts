@@ -375,18 +375,37 @@ export const dingtalkOnboardingAdapter: ChannelOnboardingAdapter = {
         // 对于钉钉，我们只设置允许列表策略
         next = setDingTalkGroupPolicy(next, dingTalkAccountId, "allowlist");
         
-        // 更新允许列表
+        // 更新允许列表（多账号时写入对应 account 下）
         if (accessConfig.entries.length > 0) {
-          next = {
-            ...next,
-            channels: {
-              ...next.channels,
-              dingtalk: {
-                ...next.channels?.dingtalk,
-                allowFrom: accessConfig.entries,
+          if (dingTalkAccountId === DEFAULT_ACCOUNT_ID) {
+            next = {
+              ...next,
+              channels: {
+                ...next.channels,
+                dingtalk: {
+                  ...next.channels?.dingtalk,
+                  allowFrom: accessConfig.entries,
+                },
               },
-            },
-          };
+            };
+          } else {
+            next = {
+              ...next,
+              channels: {
+                ...next.channels,
+                dingtalk: {
+                  ...next.channels?.dingtalk,
+                  accounts: {
+                    ...next.channels?.dingtalk?.accounts,
+                    [dingTalkAccountId]: {
+                      ...next.channels?.dingtalk?.accounts?.[dingTalkAccountId],
+                      allowFrom: accessConfig.entries,
+                    },
+                  },
+                },
+              },
+            };
+          }
         }
       }
     }

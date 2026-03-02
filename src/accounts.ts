@@ -12,6 +12,7 @@ export interface ResolvedDingTalkAccount {
   config: {
     agentId?: string;
     dmPolicy?: string;
+    groupPolicy?: string;
     allowFrom?: (string | number)[];
     webhookUrl?: string;
     webhookSecret?: string;
@@ -48,6 +49,7 @@ export function resolveDingTalkAccount({
       config: {
         agentId: accountConfig?.agentId,
         dmPolicy: accountConfig?.dmPolicy,
+        groupPolicy: accountConfig?.groupPolicy,
         allowFrom: accountConfig?.allowFrom,
         webhookUrl: accountConfig?.webhookUrl,
         webhookSecret: accountConfig?.webhookSecret,
@@ -68,6 +70,7 @@ export function resolveDingTalkAccount({
       config: {
         agentId: cfg.channels?.dingtalk?.agentId,
         dmPolicy: cfg.channels?.dingtalk?.dmPolicy,
+        groupPolicy: cfg.channels?.dingtalk?.groupPolicy,
         allowFrom: cfg.channels?.dingtalk?.allowFrom,
         webhookUrl: cfg.channels?.dingtalk?.webhookUrl,
         webhookSecret: cfg.channels?.dingtalk?.webhookSecret,

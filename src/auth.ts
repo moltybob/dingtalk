@@ -1,4 +1,3 @@
-import Util from '@alicloud/tea-util';
 import dingtalkoauth2_1_0, * as $dingtalkoauth2_1_0 from '@alicloud/dingtalk/oauth2_1_0';
 import * as $OpenApi from '@alicloud/openapi-client';
 
@@ -44,24 +43,36 @@ export async function getDingTalkAccessToken(clientId: string, clientSecret: str
     return promise;
   }
 
-  promise = (async (): Promise<string> => {
-    try {
-      const token = await fetchAndCacheToken(clientId, clientSecret, key);
-      console.log(`[dingtalk:auth] Access token retrieved successfully`);
-      return token;
-    } catch (err: any) {
-      if (!Util.empty(err?.code) && !Util.empty(err?.message)) {
-        console.error(`[dingtalk:auth] getDingTalkAccessToken Error message:`, err.message);
-        console.error(`[dingtalk:auth] getDingTalkAccessToken Error code:`, err.code);
-        throw new Error(`Failed to get access token: ${err.message} (code: ${err.code})`);
-      }
-      console.error(`[dingtalk:auth] getDingTalkAccessToken Error:`, err?.message || 'Unknown error');
-      throw new Error(`Failed to get access token: ${err?.message || 'Unknown error'}`);
-    } finally {
-      inFlight.delete(key);
-    }
-  })();
+  // 用 deferred 先暴露 promise 再跑异步逻辑，保证并发调用能复用到同一 promise
+  let resolveOut: (value: string) => void;
+  let rejectOut: (reason: Error) => void;
+  promise = new Promise<string>((resolve, reject) => {
+    resolveOut = resolve;
+    rejectOut = reject;
+  });
   inFlight.set(key, promise);
+  queueMicrotask(() => {
+    (async () => {
+      try {
+        const token = await fetchAndCacheToken(clientId, clientSecret, key);
+        console.log(`[dingtalk:auth] Access token retrieved successfully`);
+        resolveOut!(token);
+      } catch (err: any) {
+        const hasCode = err?.code != null && String(err.code) !== '';
+        const hasMessage = err?.message != null && String(err.message) !== '';
+        if (hasCode && hasMessage) {
+          console.error(`[dingtalk:auth] getDingTalkAccessToken Error message:`, err.message);
+          console.error(`[dingtalk:auth] getDingTalkAccessToken Error code:`, err.code);
+          rejectOut!(new Error(`Failed to get access token: ${err.message} (code: ${err.code})`));
+        } else {
+          console.error(`[dingtalk:auth] getDingTalkAccessToken Error:`, err?.message ?? 'Unknown error');
+          rejectOut!(new Error(`Failed to get access token: ${err?.message ?? 'Unknown error'}`));
+        }
+      } finally {
+        inFlight.delete(key);
+      }
+    })();
+  });
   return promise;
 }
 
@@ -83,10 +94,21 @@ async function fetchAndCacheToken(clientId: string, clientSecret: string, key: s
     throw new Error(`Failed to get access token: ${errmsg}`);
   }
 
-  const expireInSec = typeof (response.body as { expireIn?: number }).expireIn === 'number'
-    ? (response.body as { expireIn: number }).expireIn
-    : DEFAULT_EXPIRE_IN_SEC;
+  const rawExpire = (response.body as { expireIn?: number }).expireIn;
+  const expireInSec =
+    typeof rawExpire === 'number' && rawExpire > 0
+      ? Math.min(rawExpire, DEFAULT_EXPIRE_IN_SEC)
+      : DEFAULT_EXPIRE_IN_SEC;
   const expiresAt = Date.now() + expireInSec * 1000;
   tokenCache.set(key, { token: response.body.accessToken, expiresAt });
   return response.body.accessToken;
+}
+
+/**
+ * 仅用于测试：清空 token 缓存与进行中的请求，便于单测隔离。
+ * @internal
+ */
+export function __testingClearTokenCache(): void {
+  tokenCache.clear();
+  inFlight.clear();
 }
