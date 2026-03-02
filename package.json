@@ -3,7 +3,10 @@
   "version": "0.2.1",
   "type": "module",
   "description": "DingTalk channel plugin for OpenClaw",
-  "repository": "moltybob/dingtalk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moltybob/dingtalk.git"
+  },
   "openclaw": {
     "extensions": [
       "./index.ts"
