@@ -1,6 +1,6 @@
 {
   "name": "@moltybob/dingtalk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "DingTalk channel plugin for OpenClaw",
   "repository": "moltybob/dingtalk",
