@@ -805,6 +805,15 @@ export async function monitorDingTalkProvider(ctx: MonitorContext) {
   // Listen for abort signal to properly clean up
   ctx.abortSignal.addEventListener('abort', cleanup);
 
+  // Wait for abort signal to keep Promise pending (prevent health-monitor restart loop)
+  await new Promise<void>((resolve) => {
+    ctx.abortSignal.addEventListener('abort', () => {
+      resolve();
+    }, { once: true });
+  });
+
+  console.log('[dingtalk] DingTalk provider exiting (abort signal received)');
+
   // Return cleanup function
   return {
     stop: async () => {
